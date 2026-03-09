@@ -125,7 +125,7 @@ breadcall/
 - **Phase 2**: Docker Infrastructure (coturn deployment) ✅
 - **Phase 3**: NDI Desktop Client ✅
 - **Phase 4**: SRT Gateway ✅
-- **Phase 5**: Mobile App (React Native)
+- **Phase 5**: Mobile App (React Native) ✅
 - **Phase 6**: Advanced Features (WHIP/WHEP, recording, etc.)
 
 ## Phase 2: Docker Deployment
@@ -312,3 +312,113 @@ Error: spawn ffmpeg ENOENT
 - Check `SIGNALING_URL` is accessible
 - Configure STUN/TURN servers if behind NAT
 - Ensure WebSocket port (3000) is open
+
+## Phase 5: Mobile App (React Native)
+
+Cross-platform mobile application for iOS and Android with screen sharing and system audio capture.
+
+### Quick Start
+
+```bash
+cd mobile
+
+# Install dependencies
+npm install
+
+# iOS only
+cd ios && pod install && cd ..
+
+# Run on Android
+npm run android
+
+# Run on iOS
+npm run ios
+```
+
+### Features
+
+- **WebRTC Video Calls**: Join rooms and participate in video calls
+- **Screen Sharing**: Share screen with system audio (Android 10+, iOS 14+)
+- **Multi-Participant**: Mesh topology P2P connections
+- **Auto-Reconnect**: Automatic reconnection to signaling server
+- **Dark Theme**: Modern dark theme UI
+
+### Requirements
+
+| Platform | Minimum Version | Notes |
+|----------|-----------------|-------|
+| Android | 5.0 (API 21) | Screen share requires Android 10+ for system audio |
+| iOS | 13.0 | ReplayKit broadcast requires iOS 11+ |
+
+### Project Structure
+
+```
+mobile/
+├── src/
+│   ├── App.js                    # Main app with navigation
+│   ├── services/
+│   │   ├── SignalingService.js   # WebSocket client
+│   │   ├── WebRTCService.js      # WebRTC PeerConnection manager
+│   │   └── ScreenShareService.js # Screen capture service
+│   └── screens/
+│       ├── HomeScreen.js         # Create/join room
+│       └── RoomScreen.js         # Video grid and controls
+├── android/
+│   └── app/src/main/java/com/breadcall/
+│       ├── ScreenCaptureModule.java
+│       ├── ScreenCaptureService.java
+│       └── BreadCallPackage.java
+├── ios/
+│   ├── BreadCall/
+│   │   └── ScreenCaptureModule.m
+│   └── BroadcastUploadExtension/
+│       ├── SampleHandler.swift
+│       ├── SocketConnection.swift
+│       └── SampleUploader.swift
+└── package.json
+```
+
+### Screen Sharing
+
+**Android (10+):**
+- Uses `MediaProjection` API for screen capture
+- Uses `AudioPlaybackCapture` API for system audio
+- Requires foreground service
+
+**iOS (14+):**
+- Uses `ReplayKit` Broadcast Upload Extension
+- Requires App Group configuration
+- Frame forwarding via socket connection
+
+### Configuration
+
+Edit `mobile/.env` for your signaling server:
+
+```
+SIGNALING_URL=ws://your-server:3000/ws
+```
+
+### Building Release
+
+```bash
+# Android APK
+npm run build:android
+
+# iOS Archive
+npm run build:ios
+```
+
+### Troubleshooting
+
+**Screen capture permission denied (Android):**
+- User must grant permission each time
+- Ensure foreground service is running
+
+**Broadcast extension not appearing (iOS):**
+- Verify App Group is configured
+- Check Bundle Identifier matches
+
+**WebRTC connection fails:**
+- Configure TURN servers for mobile networks
+- Check firewall settings for mobile data
+
