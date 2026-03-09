@@ -1,0 +1,31 @@
+# Signaling Server Dockerfile
+FROM node:20-alpine
+
+# Install dependencies
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install production dependencies only
+RUN npm ci --only=production
+
+# Copy source code
+COPY server/ ./server/
+COPY client/ ./client/
+
+# Create logs directory
+RUN mkdir -p logs
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
+
+# Set environment
+ENV NODE_ENV=production
+
+# Start server
+CMD ["node", "server/src/index.js"]

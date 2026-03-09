@@ -1,0 +1,338 @@
+/* BreadCall NDI Client Styles */
+
+:root {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-panel: #0f3460;
+  --text-primary: #eee;
+  --text-secondary: #aaa;
+  --accent: #e94560;
+  --success: #4caf50;
+  --warning: #ff9800;
+  --error: #f44336;
+  --border: #333;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* Header */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+}
+
+.header h1 {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.status-bar {
+  display: flex;
+  gap: 16px;
+}
+
+.status {
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.status.disconnected {
+  background: var(--error);
+}
+
+.status.connected {
+  background: var(--success);
+}
+
+.status.ndi-available {
+  background: var(--success);
+}
+
+.status.ndi-unavailable {
+  background: var(--warning);
+}
+
+/* Panels */
+.panel {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.panel h2 {
+  font-size: 18px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Connection Panel */
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 150px;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-group label {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.form-group input {
+  padding: 10px 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.button-row {
+  display: flex;
+  gap: 12px;
+}
+
+.btn {
+  padding: 10px 24px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #d63d56;
+}
+
+.btn-secondary {
+  background: var(--bg-panel);
+  color: var(--text-primary);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #1a4a7a;
+}
+
+.btn-success {
+  background: var(--success);
+  color: white;
+}
+
+.btn-danger {
+  background: var(--error);
+  color: white;
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+/* Streams Grid */
+.streams-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.stream-card {
+  background: var(--bg-primary);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.stream-video {
+  width: 100%;
+  aspect-ratio: 16/9;
+  background: var(--bg-panel);
+  object-fit: cover;
+}
+
+.stream-info {
+  padding: 12px;
+}
+
+.stream-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.stream-name {
+  font-weight: 500;
+}
+
+.stream-status {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.stream-status.active {
+  background: var(--success);
+}
+
+.stream-status.inactive {
+  background: var(--border);
+}
+
+.stream-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.stream-actions .btn {
+  flex: 1;
+}
+
+/* Empty State */
+.empty-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--text-secondary);
+}
+
+.empty-state .hint {
+  font-size: 14px;
+  margin-top: 8px;
+}
+
+/* NDI Sources */
+.ndi-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ndi-source-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--bg-primary);
+  border-radius: 6px;
+}
+
+.ndi-source-name {
+  font-weight: 500;
+}
+
+.ndi-source-badge {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--success);
+}
+
+/* NDI Help */
+.ndi-help {
+  margin-top: 16px;
+  padding: 16px;
+  background: var(--bg-primary);
+  border-radius: 6px;
+  border-left: 4px solid var(--warning);
+}
+
+.ndi-help .warning {
+  color: var(--warning);
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.ndi-help .hint {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.ndi-help ol {
+  margin-left: 20px;
+  color: var(--text-secondary);
+}
+
+.ndi-help li {
+  margin-bottom: 4px;
+}
+
+.ndi-help code {
+  background: var(--bg-secondary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+
+.ndi-help a {
+  color: var(--accent);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}

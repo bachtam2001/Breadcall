@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  # Signaling Server (Node.js + Express + WebSocket)
+  signaling:
+    build:
+      context: .
+      dockerfile: Dockerfile.signaling
+    ports:
+      - "${SIGNALING_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - TURN_SECRET=${TURN_SECRET:-breadcall-turn-secret}
+      - TURN_REALM=${TURN_REALM:-BreadCall}
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - breadcall-network
+    restart: unless-stopped
+    depends_on:
+      - coturn
+
+  # Coturn TURN/STUN Server
+  coturn:
+    build:
+      context: ./docker/coturn
+      dockerfile: Dockerfile
+    ports:
+      - "${TURN_PORT:-3478}:3478"
+      - "${TURN_PORT:-3478}:3478/udp"
+      - "5349:5349"
+      - "5349:5349/udp"
+      - "49152-65535:49152-65535/udp"
+    environment:
+      - TURN_SECRET=${TURN_SECRET:-breadcall-turn-secret}
+      - TURN_REALM=${TURN_REALM:-BreadCall}
+      - EXTERNAL_IP=${EXTERNAL_IP:-localhost}
+    volumes:
+      - ./docker/coturn/turnserver.conf:/etc/turnserver.conf:ro
+      - ./certs:/etc/coturn/certs:ro
+      - turn-logs:/var/log/turnserver
+    networks:
+      - breadcall-network
+    restart: unless-stopped
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+
+  # Web Frontend (nginx)
+  web:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./client:/usr/share/nginx/html:ro
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    networks:
+      - breadcall-network
+    restart: unless-stopped
+    depends_on:
+      - signaling
+
+  # SRT Gateway (optional - Phase 4)
+  srt-gateway:
+    build:
+      context: ./srt-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+      - "9000-9100:9000-9100/udp"
+    environment:
+      - SIGNALING_URL=ws://signaling:3000/ws
+      - SRT_PORT_RANGE=9000-9100
+    networks:
+      - breadcall-network
+    restart: unless-stopped
+    profiles:
+      - srt
+
+networks:
+  breadcall-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  turn-logs:
+    driver: local

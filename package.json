@@ -1,0 +1,31 @@
+{
+  "name": "breadcall-signaling",
+  "version": "1.0.0",
+  "description": "BreadCall Signaling Server - WebRTC signaling for live production",
+  "main": "server/src/index.js",
+  "scripts": {
+    "start": "node server/src/index.js",
+    "dev": "nodemon server/src/index.js",
+    "test": "jest --coverage"
+  },
+  "keywords": [
+    "webrtc",
+    "signaling",
+    "broadcast",
+    "live-production"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "uuid": "^9.0.0",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "jest": "^30.2.0",
+    "nodemon": "^3.1.14"
+  }
+}

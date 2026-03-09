@@ -1,0 +1,470 @@
+const WebSocket = require('ws');
+
+class SignalingHandler {
+  constructor(roomManager, wss) {
+    this.roomManager = roomManager;
+    this.wss = wss;
+    this.wsMap = new Map(); // WebSocket -> { participantId, roomId }
+    this.heartbeats = new Map(); // WebSocket -> { misses: number, timer: NodeJS.Timeout }
+    this.heartbeatInterval = 30000; // 30 seconds
+    this.maxMisses = 3;
+
+    // Start heartbeat check
+    this.startHeartbeatCheck();
+  }
+
+  /**
+   * Handle new WebSocket connection
+   * @param {WebSocket} ws
+   */
+  handleConnection(ws) {
+    // Initialize heartbeat
+    this.heartbeats.set(ws, { misses: 0, timer: null });
+  }
+
+  /**
+   * Handle incoming WebSocket message
+   * @param {WebSocket} ws
+   * @param {Object} data - Parsed message data
+   */
+  handleMessage(ws, data) {
+    const { type, payload } = data;
+
+    if (!type) {
+      this.sendError(ws, 'Missing message type');
+      return;
+    }
+
+    console.log(`[Signaling] Received: ${type}`, payload ? JSON.stringify(payload).substring(0, 100) : '');
+
+    switch (type) {
+      case 'ping':
+        this.handlePing(ws);
+        break;
+
+      case 'join-room':
+        this.handleJoinRoom(ws, payload);
+        break;
+
+      case 'leave-room':
+        this.handleLeaveRoom(ws, payload);
+        break;
+
+      case 'offer':
+        this.handleOffer(ws, payload);
+        break;
+
+      case 'answer':
+        this.handleAnswer(ws, payload);
+        break;
+
+      case 'ice-candidate':
+        this.handleIceCandidate(ws, payload);
+        break;
+
+      case 'chat-message':
+        this.handleChatMessage(ws, payload);
+        break;
+
+      case 'mute-status':
+        this.handleMuteStatus(ws, payload);
+        break;
+
+      case 'room-settings':
+        this.handleRoomSettings(ws, payload);
+        break;
+
+      default:
+        this.sendError(ws, `Unknown message type: ${type}`);
+    }
+  }
+
+  /**
+   * Handle WebSocket close
+   * @param {WebSocket} ws
+   */
+  handleClose(ws) {
+    const connection = this.wsMap.get(ws);
+
+    if (connection) {
+      console.log(`[Signaling] WebSocket disconnected: ${connection.participantId}`);
+      this.roomManager.leaveRoom(connection.roomId, connection.participantId);
+
+      // Notify room participants
+      this.broadcastToRoom(connection.roomId, {
+        type: 'participant-left',
+        participantId: connection.participantId
+      }, ws);
+    }
+
+    this.cleanupConnection(ws);
+  }
+
+  /**
+   * Handle WebSocket error
+   * @param {WebSocket} ws
+   * @param {Error} error
+   */
+  handleError(ws, error) {
+    console.error('[Signaling] WebSocket error:', error.message);
+    this.sendError(ws, 'Connection error');
+  }
+
+  /**
+   * Handle ping message
+   * @param {WebSocket} ws
+   */
+  handlePing(ws) {
+    const heartbeat = this.heartbeats.get(ws);
+    if (heartbeat) {
+      heartbeat.misses = 0;
+    }
+
+    this.send(ws, { type: 'pong' });
+  }
+
+  /**
+   * Handle join-room message
+   * @param {WebSocket} ws
+   * @param {Object} payload
+   */
+  handleJoinRoom(ws, payload) {
+    const { roomId, name, password } = payload || {};
+
+    if (!roomId) {
+      this.sendError(ws, 'Room ID is required');
+      return;
+    }
+
+    try {
+      const result = this.roomManager.joinRoom(roomId, {
+        name,
+        password,
+        ws
+      });
+
+      // Store connection mapping
+      this.wsMap.set(ws, {
+        participantId: result.participantId,
+        roomId: result.roomId
+      });
+
+      // Send success response
+      this.send(ws, {
+        type: 'joined-room',
+        participantId: result.participantId,
+        room: result.room,
+        existingPeers: result.existingPeers
+      });
+
+      // Notify existing participants about new peer
+      this.broadcastToRoom(roomId, {
+        type: 'participant-joined',
+        participantId: result.participantId,
+        name: name || 'Anonymous'
+      }, ws);
+
+      console.log(`[Signaling] Participant ${result.participantId} joined room ${roomId}`);
+    } catch (error) {
+      this.sendError(ws, error.message);
+    }
+  }
+
+  /**
+   * Handle leave-room message
+   * @param {WebSocket} ws
+   * @param {Object} payload
+   */
+  handleLeaveRoom(ws, payload) {
+    const connection = this.wsMap.get(ws);
+
+    if (!connection) {
+      this.sendError(ws, 'Not in a room');
+      return;
+    }
+
+    this.roomManager.leaveRoom(connection.roomId, connection.participantId);
+
+    // Notify room
+    this.broadcastToRoom(connection.roomId, {
+      type: 'participant-left',
+      participantId: connection.participantId
+    }, ws);
+
+    this.wsMap.delete(ws);
+
+    this.send(ws, {
+      type: 'left-room',
+      participantId: connection.participantId
+    });
+  }
+
+  /**
+   * Handle WebRTC offer
+   * @param {WebSocket} ws
+   * @param {Object} payload
+   */
+  handleOffer(ws, payload) {
+    const { targetPeerId, sdp } = payload || {};
+
+    if (!targetPeerId || !sdp) {
+      this.sendError(ws, 'targetPeerId and sdp are required');
+      return;
+    }
+
+    const connection = this.wsMap.get(ws);
+    if (!connection) {
+      this.sendError(ws, 'Not connected to a room');
+      return;
+    }
+
+    // Find target WebSocket
+    const targetWs = this.findPeerWebSocket(connection.roomId, targetPeerId);
+    if (!targetWs) {
+      this.sendError(ws, 'Peer not found');
+      return;
+    }
+
+    // Forward offer to target
+    this.send(targetWs, {
+      type: 'offer',
+      from: connection.participantId,
+      sdp
+    });
+  }
+
+  /**
+   * Handle WebRTC answer
+   * @param {WebSocket} ws
+   * @param {Object} payload
+   */
+  handleAnswer(ws, payload) {
+    const { targetPeerId, sdp } = payload || {};
+
+    if (!targetPeerId || !sdp) {
+      this.sendError(ws, 'targetPeerId and sdp are required');
+      return;
+    }
+
+    const connection = this.wsMap.get(ws);
+    if (!connection) {
+      this.sendError(ws, 'Not connected to a room');
+      return;
+    }
+
+    // Find target WebSocket
+    const targetWs = this.findPeerWebSocket(connection.roomId, targetPeerId);
+    if (!targetWs) {
+      this.sendError(ws, 'Peer not found');
+      return;
+    }
+
+    // Forward answer to target
+    this.send(targetWs, {
+      type: 'answer',
+      from: connection.participantId,
+      sdp
+    });
+  }
+
+  /**
+   * Handle ICE candidate
+   * @param {WebSocket} ws
+   * @param {Object} payload
+   */
+  handleIceCandidate(ws, payload) {
+    const { targetPeerId, candidate } = payload || {};
+
+    if (!targetPeerId || !candidate) {
+      this.sendError(ws, 'targetPeerId and candidate are required');
+      return;
+    }
+
+    const connection = this.wsMap.get(ws);
+    if (!connection) {
+      this.sendError(ws, 'Not connected to a room');
+      return;
+    }
+
+    // Find target WebSocket
+    const targetWs = this.findPeerWebSocket(connection.roomId, targetPeerId);
+    if (!targetWs) {
+      this.sendError(ws, 'Peer not found');
+      return;
+    }
+
+    // Forward ICE candidate to target
+    this.send(targetWs, {
+      type: 'ice-candidate',
+      from: connection.participantId,
+      candidate
+    });
+  }
+
+  /**
+   * Handle chat message
+   * @param {WebSocket} ws
+   * @param {Object} payload
+   */
+  handleChatMessage(ws, payload) {
+    const { message } = payload || {};
+
+    if (!message) {
+      this.sendError(ws, 'Message is required');
+      return;
+    }
+
+    const connection = this.wsMap.get(ws);
+    if (!connection) {
+      this.sendError(ws, 'Not connected to a room');
+      return;
+    }
+
+    // Broadcast chat message to room
+    this.broadcastToRoom(connection.roomId, {
+      type: 'chat-message',
+      from: connection.participantId,
+      message,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  /**
+   * Handle mute status change
+   * @param {WebSocket} ws
+   * @param {Object} payload
+   */
+  handleMuteStatus(ws, payload) {
+    const { isMuted, isVideoOff } = payload || {};
+
+    const connection = this.wsMap.get(ws);
+    if (!connection) {
+      this.sendError(ws, 'Not connected to a room');
+      return;
+    }
+
+    // Update participant status
+    this.roomManager.updateParticipant(connection.roomId, connection.participantId, {
+      isMuted: isMuted !== undefined ? isMuted : undefined,
+      isVideoOff: isVideoOff !== undefined ? isVideoOff : undefined
+    });
+
+    // Broadcast to room
+    this.broadcastToRoom(connection.roomId, {
+      type: 'mute-status',
+      participantId: connection.participantId,
+      isMuted,
+      isVideoOff
+    });
+  }
+
+  /**
+   * Handle room settings change (director only)
+   * @param {WebSocket} ws
+   * @param {Object} payload
+   */
+  handleRoomSettings(ws, payload) {
+    const connection = this.wsMap.get(ws);
+    if (!connection) {
+      this.sendError(ws, 'Not connected to a room');
+      return;
+    }
+
+    // TODO: Implement director permissions check
+
+    // Broadcast settings to room
+    this.broadcastToRoom(connection.roomId, {
+      type: 'room-settings',
+      settings: payload
+    });
+  }
+
+  /**
+   * Send message to a WebSocket
+   * @param {WebSocket} ws
+   * @param {Object} data
+   */
+  send(ws, data) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(data));
+    }
+  }
+
+  /**
+   * Broadcast message to all participants in a room
+   * @param {string} roomId
+   * @param {Object} data
+   * @param {WebSocket} excludeWs - WebSocket to exclude
+   */
+  broadcastToRoom(roomId, data, excludeWs = null) {
+    for (const [ws, connection] of this.wsMap.entries()) {
+      if (connection.roomId === roomId && ws !== excludeWs) {
+        this.send(ws, data);
+      }
+    }
+  }
+
+  /**
+   * Find WebSocket for a peer in a room
+   * @param {string} roomId
+   * @param {string} peerId
+   * @returns {WebSocket|null}
+   */
+  findPeerWebSocket(roomId, peerId) {
+    for (const [ws, connection] of this.wsMap.entries()) {
+      if (connection.roomId === roomId && connection.participantId === peerId) {
+        return ws;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Send error message
+   * @param {WebSocket} ws
+   * @param {string} message
+   */
+  sendError(ws, message) {
+    console.error(`[Signaling] Error: ${message}`);
+    this.send(ws, {
+      type: 'error',
+      message
+    });
+  }
+
+  /**
+   * Clean up connection data
+   * @param {WebSocket} ws
+   */
+  cleanupConnection(ws) {
+    this.heartbeats.delete(ws);
+    this.wsMap.delete(ws);
+  }
+
+  /**
+   * Start heartbeat check interval
+   */
+  startHeartbeatCheck() {
+    setInterval(() => {
+      for (const [ws, heartbeat] of this.heartbeats.entries()) {
+        if (ws.readyState !== WebSocket.OPEN) {
+          this.cleanupConnection(ws);
+          continue;
+        }
+
+        heartbeat.misses++;
+
+        if (heartbeat.misses >= this.maxMisses) {
+          console.log('[Signaling] Heartbeat timeout, closing connection');
+          ws.close();
+          continue;
+        }
+
+        // Send ping
+        this.send(ws, { type: 'ping' });
+      }
+    }, this.heartbeatInterval);
+  }
+}
+
+module.exports = SignalingHandler;
