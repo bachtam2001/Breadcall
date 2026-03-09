@@ -126,7 +126,7 @@ breadcall/
 - **Phase 3**: NDI Desktop Client ✅
 - **Phase 4**: SRT Gateway ✅
 - **Phase 5**: Mobile App (React Native) ✅
-- **Phase 6**: Advanced Features (WHIP/WHEP, recording, etc.)
+- **Phase 6**: Advanced Features (WHIP/WHEP, recording, etc.) ✅
 
 ## Phase 2: Docker Deployment
 
@@ -421,4 +421,291 @@ npm run build:ios
 **WebRTC connection fails:**
 - Configure TURN servers for mobile networks
 - Check firewall settings for mobile data
+
+## Phase 6: Advanced Features
+
+Production-grade features for professional broadcasting workflows.
+
+### Features Implemented
+
+| Feature | Description | File |
+|---------|-------------|------|
+| **Recording** | Local recording with MediaRecorder API | `client/js/Recorder.js` |
+| **Audio Mixer** | Multi-source mixing, EQ, compressor | `client/js/AudioMixer.js` |
+| **File Transfer** | P2P file transfer via DataChannel | `client/js/FileTransfer.js` |
+| **Tally Light** | On-air/preview indicators | `client/js/TallyLight.js` |
+| **Video Effects** | Filters, LUT, chroma key | `client/js/VideoEffects.js` |
+| **Scene Composer** | Multi-stream layout composer | `client/js/SceneComposer.js` |
+| **WHIP/WHEP** | HTTP-based WebRTC signaling | `client/js/WHIPClient.js` |
+| **Remote Control** | HTTP/WS API for automation | `server/src/RemoteControlAPI.js` |
+
+### Recording
+
+```javascript
+const { Recorder } = require('./client/js/Recorder');
+
+const recorder = new Recorder();
+
+// Start recording
+recorder.startRecording(mediaStream);
+
+// Stop and get blob
+const blob = await recorder.stopRecording();
+
+// Download recording
+recorder.download(blob, 'my-recording.webm');
+
+// Or save to file system (if supported)
+await recorder.saveToFile(blob);
+```
+
+**Features:**
+- Configurable quality (mimeType, bitrate)
+- Pause/resume recording
+- Progress events
+- File System Access API support
+
+### Audio Mixer
+
+```javascript
+const { AudioMixer } = require('./client/js/AudioMixer');
+
+const mixer = new AudioMixer();
+await mixer.initialize();
+
+// Add audio source
+const controls = mixer.addSource('participant-1', audioStream);
+
+// Control volume
+controls.setVolume(0.8);
+
+// Apply EQ
+controls.setEQ('low', 4);    // +4dB bass
+controls.setEQ('mid', 2);    // +2dB mids
+controls.setEQ('high', -2);  // -2dB treble
+
+// Apply preset
+mixer.applyPreset('participant-1', 'radio');
+
+// Mute/solo
+controls.mute();
+controls.solo();
+
+// Master volume
+mixer.setMasterVolume(0.5);
+```
+
+**Presets:** `flat`, `bright`, `warm`, `radio`, `phone`
+
+### File Transfer
+
+```javascript
+const { FileTransfer } = require('./client/js/FileTransfer');
+
+const fileTransfer = new FileTransfer();
+
+// Initialize on peer connection
+fileTransfer.initDataChannel(peerId, peerConnection);
+
+// Send file
+const transferId = fileTransfer.sendFile(peerId, file, dataChannel);
+
+// Listen for progress
+fileTransfer.on('progress', ({ progress, sentBytes, totalBytes }) => {
+  console.log(`Transfer: ${Math.round(progress * 100)}%`);
+});
+
+// Handle incoming file
+fileTransfer.on('file-received', ({ fileName, fileSize }) => {
+  console.log(`Receiving: ${fileName} (${fileSize} bytes)`);
+});
+
+fileTransfer.on('receive-complete', ({ blob, fileName }) => {
+  // File received, can now download
+});
+```
+
+**Features:**
+- Chunked transfer (16KB chunks)
+- Progress tracking
+- Retry on error
+- Multiple concurrent transfers
+
+### Tally Light
+
+```javascript
+const { TallyLight } = require('./client/js/TallyLight');
+
+const tally = new TallyLight();
+
+// Initialize for stream
+tally.init('stream-1', videoContainer);
+
+// Set live (red indicator)
+tally.setLive('stream-1', true);
+
+// Set preview (green indicator)
+tally.setPreview('stream-1', true);
+
+// Set recording (flashing amber)
+tally.setRecording('stream-1', true);
+
+// Custom colors
+tally.setColors({
+  live: '#ff0000',
+  preview: '#00ff00',
+  recording: '#ffaa00'
+});
+```
+
+### Video Effects
+
+```javascript
+const { VideoEffects } = require('./client/js/VideoEffects');
+
+const effects = new VideoEffects();
+await effects.initialize(canvas);
+
+// Apply preset
+effects.applyPreset(videoElement, 'warm');
+
+// Or custom settings
+effects.applyEffect(videoElement, 'none', {
+  brightness: 0.1,
+  contrast: 1.2,
+  saturation: 0.9
+});
+
+// Chroma key (green screen)
+effects.applyChromaKey(videoElement, [0, 1, 0], 0.3);
+
+// Get processed stream
+const processedStream = effects.getStream();
+```
+
+**Presets:** `none`, `warm`, `cool`, `vintage`, `dramatic`, `grayscale`
+
+### Scene Composer
+
+```javascript
+const { SceneComposer } = require('./client/js/SceneComposer');
+
+const composer = new SceneComposer();
+composer.initialize(canvas, 1920, 1080);
+
+// Add video sources
+composer.addSource('main', mainVideo, {
+  x: 0, y: 0, width: 1, height: 1
+});
+composer.addSource('pip', pipVideo, {
+  x: 0.7, y: 0.7, width: 0.25, height: 0.25
+});
+
+// Load preset scene
+composer.loadScene('pip-right', new Map([
+  ['main', mainVideo],
+  ['pip', pipVideo]
+]));
+
+// Start rendering
+composer.startRendering();
+
+// Get composed stream
+const outputStream = composer.getStream(30);
+
+// Capture frame
+const blob = await composer.captureFrame('image/png');
+```
+
+**Preset Layouts:** `single`, `pip-right`, `pip-left`, `side-by-side`, `grid-2x2`, `grid-3x3`, `spotlight`
+
+### WHIP/WHEP
+
+```javascript
+const { WHIPClient, WHEPClient } = require('./client/js/WHIPClient');
+
+// Publish via WHIP
+const whip = new WHIPClient();
+const { resourceUrl, pc } = await whip.publish(
+  'https://media-server.com/whip',
+  mediaStream,
+  { token: 'auth-token' }
+);
+
+// Consume via WHEP
+const whep = new WHEPClient();
+const { stream, pc } = await whep.consume(
+  'https://media-server.com/whep/stream-id',
+  { token: 'auth-token' }
+);
+
+// Stop publishing/consuming
+await whip.stop(connectionId);
+await whep.stop(connectionId);
+```
+
+### Remote Control API
+
+```javascript
+// Server-side setup
+const { RemoteControlAPI } = require('./server/src/RemoteControlAPI');
+
+const remoteAPI = new RemoteControlAPI(roomManager, signalingHandler);
+
+// Register API key
+const apiKey = remoteAPI.registerApiKey('stream-deck', [
+  'rooms:create',
+  'rooms:read',
+  'rooms:delete',
+  'participants:kick',
+  'participants:mute',
+  'broadcast'
+]);
+
+// Add routes to Express
+const routes = remoteAPI.getRoutes();
+app.post('/api/remote/rooms', routes['POST /api/remote/rooms']);
+```
+
+**API Endpoints:**
+- `POST /api/remote/rooms` - Create room
+- `GET /api/remote/rooms/:roomId` - Get room info
+- `DELETE /api/remote/rooms/:roomId` - Delete room
+- `GET /api/remote/rooms` - List all rooms
+- `GET /api/remote/rooms/:roomId/participants` - List participants
+- `POST /api/remote/rooms/:roomId/participants/:participantId/kick` - Kick participant
+- `POST /api/remote/rooms/:roomId/participants/:participantId/mute` - Mute participant
+- `POST /api/remote/broadcast` - Broadcast message to all rooms
+- `GET /api/remote/stats` - Get system stats
+
+**WebSocket Events:**
+- Subscribe to real-time updates
+- Room created/deleted events
+- Participant joined/left events
+- Custom notifications
+
+### Troubleshooting
+
+**Recording not working:**
+- Check browser supports MediaRecorder
+- Ensure stream has audio/video tracks
+- Verify MIME type is supported
+
+**Audio mixer not initialized:**
+- Call `initialize()` before adding sources
+- Check AudioContext is allowed (user interaction required)
+
+**File transfer fails:**
+- Ensure DataChannel is open before sending
+- Check chunk size is appropriate for your network
+- Verify both peers support the same binary type
+
+**WHIP/WHEP connection fails:**
+- Verify endpoint URL is correct
+- Check authentication token is valid
+- Ensure server supports WHIP/WHEP protocol
+
+**Remote control API returns 401:**
+- Include `X-API-Key` header in requests
+- Verify API key has required permissions
 
