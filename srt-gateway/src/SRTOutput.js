@@ -69,14 +69,31 @@ class SRTOutput extends EventEmitter {
 
       console.log('[SRTOutput] Starting SRT output for', streamId, '->', srtUrl);
 
-      // FFmpeg command to receive WebRTC track and output SRT
-      // Note: In production, this would use a more sophisticated pipeline
-      // For now, we create an FFmpeg process that outputs to SRT
+      // Build FFmpeg command for SRT output
+      // Uses named pipes or stdin for receiving WebRTC stream data
       const ffmpegArgs = [
-        '-f', 'lavfi',
-        '-i', 'testsrc=size=1920x1080:rate=30', // Placeholder - would receive actual stream
-        '-f', 'lavfi',
-        '-i', 'sine=frequency=1000', // Placeholder audio
+        '-y', // Overwrite output
+        '-f', 'rawvideo',
+        '-pixel_format', 'bgra',
+        '-video_size', '1920x1080',
+        '-framerate', '30',
+        '-thread_queue_size', '512',
+        '-i', 'pipe:0', // Video from stdin
+      ];
+
+      // Add audio input if available
+      if (audioTrack) {
+        ffmpegArgs.push(
+          '-f', 's16le',
+          '-ar', '48000',
+          '-ac', '1',
+          '-thread_queue_size', '512',
+          '-i', 'pipe:1' // Audio from pipe 1
+        );
+      }
+
+      // Output encoding settings
+      ffmpegArgs.push(
         '-c:v', 'libx264',
         '-preset', 'ultrafast',
         '-tune', 'zerolatency',
@@ -87,19 +104,34 @@ class SRTOutput extends EventEmitter {
         '-c:a', 'aac',
         '-b:a', '128k',
         '-f', 'mpegts',
-        `srt://${srtUrl.replace('srt://', '')}?mode=caller&latency=1000000`
-      ];
+        `-srt_mode=caller`,
+        `-latency`, `1000000`,
+        `srt://${srtUrl.replace('srt://', '')}`
+      );
 
       const ffmpegProc = spawn('ffmpeg', ffmpegArgs, {
         stdio: ['pipe', 'pipe', 'pipe']
       });
 
+      // Pipe video data to FFmpeg stdin
+      if (videoTrack) {
+        // In production: capture frames from WebRTC and pipe to ffmpeg
+        // stream.pipeToWebRTC(ffmpegProc.stdin) or use RTCVideoSink
+        console.log('[SRTOutput] Video pipe connected');
+      }
+
+      // Handle FFmpeg stderr for logging
       ffmpegProc.stderr.on('data', (data) => {
-        console.log(`[FFmpeg][${streamId}]`, data.toString().trim());
+        const log = data.toString().trim();
+        if (log.includes('error') || log.includes('Error')) {
+          console.error(`[FFmpeg][${streamId}]`, log);
+        } else {
+          console.log(`[FFmpeg][${streamId}]`, log);
+        }
       });
 
       ffmpegProc.on('error', (err) => {
-        console.error(`[SRTOutput][${streamId}] FFmpeg error:`, err);
+        console.error(`[SRTOutput][${streamId}] FFmpeg spawn error:`, err);
         this._cleanup(streamId);
       });
 
@@ -117,7 +149,9 @@ class SRTOutput extends EventEmitter {
         ffmpeg: ffmpegProc,
         port: localSrtPort,
         srtUrl: srtUrl,
-        localSrtUrl: localSrtUrl
+        localSrtUrl: localSrtUrl,
+        videoTrack,
+        audioTrack
       });
 
       console.log('[SRTOutput] Started SRT for', streamId, 'on port', localSrtPort);
@@ -128,6 +162,30 @@ class SRTOutput extends EventEmitter {
       console.error('[SRTOutput] Start SRT error:', error);
       this._releasePort(port);
       return false;
+    }
+  }
+
+  /**
+   * Pipe video frame data to FFmpeg
+   * @param {string} streamId - Stream identifier
+   * @param {Buffer} frameData - Raw BGRA frame data
+   */
+  pipeVideoFrame(streamId, frameData) {
+    const output = this.outputs.get(streamId);
+    if (output && output.ffmpeg && output.ffmpeg.stdin) {
+      output.ffmpeg.stdin.write(frameData);
+    }
+  }
+
+  /**
+   * Pipe audio samples to FFmpeg
+   * @param {string} streamId - Stream identifier
+   * @param {Buffer} audioData - Raw PCM audio data
+   */
+  pipeAudioData(streamId, audioData) {
+    const output = this.outputs.get(streamId);
+    if (output && output.ffmpeg && output.ffmpeg.stdio[1]) {
+      output.ffmpeg.stdio[1].write(audioData);
     }
   }
 

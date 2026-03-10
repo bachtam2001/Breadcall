@@ -88,10 +88,10 @@ void DestroySend(const Nan::FunctionCallbackInfo<Value>& args) {
   args.GetReturnValue().Set(Nan::True());
 }
 
-// Send video frame
+// Send video frame (BGRA format)
 void SendVideo(const Nan::FunctionCallbackInfo<Value>& args) {
-  if (args.Length() < 2) {
-    Nan::ThrowTypeError("Expected peer ID and frame data");
+  if (args.Length() < 3) {
+    Nan::ThrowTypeError("Expected peer ID, frame data, width, and height");
     return;
   }
 
@@ -104,22 +104,48 @@ void SendVideo(const Nan::FunctionCallbackInfo<Value>& args) {
     return;
   }
 
+  NDIlib_send_instance_t sendInstance = it->second;
+
   // Get frame data (Buffer with raw BGRA frames)
   if (!args[1]->IsObject()) {
-    Nan::ThrowTypeError("Expected frame data object");
+    Nan::ThrowTypeError("Expected frame data buffer");
     return;
   }
 
-  // In a real implementation, extract frame data from the buffer
-  // and send via NDIlib_send_send_video_async
+  Local<Object> frameBuffer = args[1].As<Object>();
+  char* data = node::Buffer::Data(frameBuffer);
+  size_t size = node::Buffer::Length(frameBuffer);
+
+  // Get width and height
+  int width = Nan::To<int>(args[2]).FromJust();
+  int height = Nan::To<int>(args[3]).FromJust();
+
+  // Setup NDI video frame
+  NDIlib_video_frame_v2_t videoFrame;
+  videoFrame.xres = width;
+  videoFrame.yres = height;
+  videoFrame.FourCC = NDIlib_FourCC_type_BGRA;
+  videoFrame.frame_rate_N = 30;
+  videoFrame.frame_rate_D = 1;
+  videoFrame.picture_aspect_ratio = (float)width / (float)height;
+  videoFrame.frame_format_type = NDIlib_frame_format_type_progressive;
+  videoFrame.timecode = NDIlib_video_frame_timecode_sent_now;
+
+  // Calculate line stride
+  videoFrame.line_stride_in_bytes = width * 4; // BGRA = 4 bytes per pixel
+  videoFrame.p_data = data;
+  videoFrame.data_size_in_bytes = size;
+
+  // Send video frame asynchronously
+  NDIlib_send_send_video_async_v2(sendInstance, &videoFrame);
 
   args.GetReturnValue().Set(Nan::True());
 }
 
-// Send audio samples
+// Send audio samples (FLTP - Float Planar)
 void SendAudio(const Nan::FunctionCallbackInfo<Value>& args) {
-  if (args.Length() < 2) {
-    Nan::ThrowTypeError("Expected peer ID and audio data");
+  if (args.Length() < 4) {
+    Nan::ThrowTypeError("Expected peer ID, audio data, sample rate, and channel count");
     return;
   }
 
@@ -132,8 +158,37 @@ void SendAudio(const Nan::FunctionCallbackInfo<Value>& args) {
     return;
   }
 
-  // In a real implementation, extract audio samples and send
-  // via NDIlib_send_send_audio
+  NDIlib_send_instance_t sendInstance = it->second;
+
+  // Get audio data (Buffer with raw Float32 samples)
+  if (!args[1]->IsObject()) {
+    Nan::ThrowTypeError("Expected audio data buffer");
+    return;
+  }
+
+  Local<Object> audioBuffer = args[1].As<Object>();
+  float* data = reinterpret_cast<float*>(node::Buffer::Data(audioBuffer));
+  size_t size = node::Buffer::Length(audioBuffer);
+
+  int sampleRate = Nan::To<int>(args[2]).FromJust();
+  int channels = Nan::To<int>(args[3]).FromJust();
+  int samples = size / sizeof(float) / channels;
+
+  // Setup NDI audio frame
+  NDIlib_audio_frame_v2_t audioFrame;
+  audioFrame.sample_rate = sampleRate;
+  audioFrame.no_channels = channels;
+  audioFrame.no_samples = samples;
+  audioFrame.timecode = NDIlib_audio_frame_timecode_sent_now;
+  audioFrame.channel_type = NDIlib_channel_type_standard_channels;
+  audioFrame.frame_format_type = NDIlib_frame_format_type_interleaved;
+
+  // Interleaved audio data
+  audioFrame.p_data = data;
+  audioFrame.data_size_in_bytes = size;
+
+  // Send audio frame
+  NDIlib_send_send_audio_v2(sendInstance, &audioFrame);
 
   args.GetReturnValue().Set(Nan::True());
 }
