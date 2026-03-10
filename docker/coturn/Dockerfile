@@ -3,8 +3,6 @@ FROM coturn/coturn:latest
 # Copy configuration
 COPY turnserver.conf /etc/turnserver.conf
 
-# Create directories for certificates
-RUN mkdir -p /etc/coturn/certs
 
 # Expose TURN/STUN ports
 EXPOSE 3478/tcp
