@@ -57,9 +57,27 @@ class SoloView {
 
     this.signaling.connect(wsUrl);
 
-    this.signaling.addEventListener('connected', () => {
-      console.log('[SoloView] Connected');
+    this.signaling.addEventListener('joined-room', async (e) => {
+      console.log('[SoloView] Joined room');
+      const { existingPeers } = e.detail;
+
+      // Fetch OME Config
+      const res = await fetch('/api/ome-config');
+      const config = await res.json();
+      if (config.success) this.webrtc.setOmeConfig(config);
+
+      const targetPeer = existingPeers.find(p => p.participantId === this.streamId || this.streamId === 'any');
+      if (targetPeer && targetPeer.streamName) {
+        this.webrtc.consumeRemoteStream(targetPeer.participantId, targetPeer.streamName);
+      }
       this.signaling.send('join-room', { roomId: this.roomId, name: 'SoloView' });
+    });
+
+    this.signaling.addEventListener('participant-joined', (e) => {
+      const { participantId, streamName } = e.detail;
+      if (participantId === this.streamId || this.streamId === 'any') {
+        if (streamName) this.webrtc.consumeRemoteStream(participantId, streamName);
+      }
     });
 
     this.webrtc.addEventListener('remote-stream', (e) => {
@@ -69,36 +87,25 @@ class SoloView {
       }
     });
 
-    this.signaling.addEventListener('offer', (e) => {
-      const { from, sdp } = e.detail;
-      if (from === this.streamId || this.streamId === 'any') {
-        this.webrtc.handleOffer(from, sdp);
-      }
-    });
-
-    this.signaling.addEventListener('answer', (e) => {
-      const { from, sdp } = e.detail;
-      this.webrtc.handleAnswer(from, sdp);
-    });
-
-    this.signaling.addEventListener('ice-candidate', (e) => {
-      const { from, candidate } = e.detail;
-      this.webrtc.handleIceCandidate(from, candidate);
-    });
+    // P2P signaling ignored
+    /*
+    this.signaling.addEventListener('offer', ...);
+    this.signaling.addEventListener('answer', ...);
+    this.signaling.addEventListener('ice-candidate', ...);
+    */
 
     this.signaling.addEventListener('disconnected', () => {
       console.log('[SoloView] Disconnected, reconnecting...');
       setTimeout(() => this.connect(), 2000);
     });
 
-    setTimeout(() => this.webrtc.createOffer(this.streamId), 1000);
+    // No need for initial offer in SFU
+    // setTimeout(() => webrtc.createOffer(this.streamId), 1000);
   }
 
   async getStats() {
     if (!this.webrtc) return null;
-    const peerIds = this.webrtc.getPeerIds();
-    if (peerIds.length === 0) return null;
-    return await this.webrtc.getStats(peerIds[0]);
+    return await this.webrtc.getStats(this.streamId);
   }
 }
 

@@ -59,21 +59,33 @@ class DirectorView {
       this.signaling.send('join-room', { roomId: this.roomId, name: 'Director' });
     });
 
-    this.signaling.addEventListener('joined-room', (e) => {
+    this.signaling.addEventListener('joined-room', async (e) => {
       const { existingPeers } = e.detail;
       console.log('[Director] Joined room, existing peers:', existingPeers);
+
+      // Fetch OME Config if not already present
+      if (!this.webrtc.omeConfig) {
+        const response = await fetch('/api/ome-config');
+        const data = await response.json();
+        if (data.success) this.webrtc.setOmeConfig(data);
+      }
+
       existingPeers.forEach(peer => {
         this.addParticipant(peer.participantId, peer.name);
-        this.webrtc.createOffer(peer.participantId);
+        if (peer.streamName) {
+          this.webrtc.consumeRemoteStream(peer.participantId, peer.streamName);
+        }
       });
       this.updateParticipantCount();
     });
 
     this.signaling.addEventListener('participant-joined', (e) => {
-      const { participantId, name } = e.detail;
+      const { participantId, name, streamName } = e.detail;
       console.log('[Director] Participant joined:', participantId);
       this.addParticipant(participantId, name);
-      this.webrtc.createOffer(participantId);
+      if (streamName) {
+        this.webrtc.consumeRemoteStream(participantId, streamName);
+      }
       this.updateParticipantCount();
       this.showToast(`${name} joined the room`, 'info');
     });
@@ -112,7 +124,8 @@ class DirectorView {
           <span class="connection-status" style="font-size: 12px; color: var(--color-success);">Connected</span>
         </div>
         <div class="director-card-controls" style="display: flex; flex-wrap: wrap; gap: 8px;">
-          <button class="btn btn-sm btn-secondary" onclick="window.directorView.copySoloLink('${peerId}')">Copy Link</button>
+          <button class="btn btn-sm btn-secondary" onclick="window.directorView.copyWhepLink('${peerId}')">WHEP Link</button>
+          <button class="btn btn-sm btn-secondary" onclick="window.directorView.copySrtLink('${peerId}')">SRT Link</button>
           <button class="btn btn-sm btn-secondary" onclick="window.directorView.showStats('${peerId}')">Stats</button>
           <button class="btn btn-sm btn-danger" onclick="window.directorView.muteParticipant('${peerId}')">Mute</button>
           <button class="btn btn-sm btn-danger" onclick="window.directorView.kickParticipant('${peerId}')">Kick</button>
@@ -146,18 +159,30 @@ class DirectorView {
     if (countEl) countEl.textContent = this.participants.size;
   }
 
-  async copySoloLink(peerId) {
-    const participant = this.participants.get(peerId);
-    if (!participant) return;
-
+  async copyWhepLink(peerId) {
     const link = `${window.location.origin}/#/view/${this.roomId}/${peerId}`;
+    await this.copyToClipboard(link, 'WHEP Player link copied!');
+  }
 
+  async copySrtLink(peerId) {
+    // Generate SRT URL: srt://{host}:9999?streamid=app/{roomId}_{peerId}
+    const host = window.location.hostname;
+    const streamId = `app/${this.roomId}_${peerId}`;
+    const link = `srt://${host}:9999?streamid=${streamId}`;
+    await this.copyToClipboard(link, 'SRT link copied!');
+  }
+
+  async copyToClipboard(text, successMsg) {
     try {
-      await navigator.clipboard.writeText(link);
-      this.showToast('Solo view link copied!', 'success');
+      await navigator.clipboard.writeText(text);
+      this.showToast(successMsg, 'success');
     } catch (error) {
-      this.showToast('Failed to copy link', 'error');
+      this.showToast('Failed to copy', 'error');
     }
+  }
+
+  async copySoloLink(peerId) {
+    return this.copyWhepLink(peerId);
   }
 
   async showStats(peerId) {

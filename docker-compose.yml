@@ -13,39 +13,20 @@ services:
       - PORT=3000
       - TURN_SECRET=${TURN_SECRET:-breadcall-turn-secret}
       - TURN_REALM=${TURN_REALM:-BreadCall}
+      # Limit Node.js heap size to prevent memory exhaustion
+      - NODE_OPTIONS=--max-old-space-size=512
     volumes:
       - ./logs:/app/logs
     networks:
       - breadcall-network
     restart: unless-stopped
-    depends_on:
-      - coturn
-
-  # Coturn TURN/STUN Server
-  coturn:
-    build:
-      context: ./docker/coturn
-      dockerfile: Dockerfile
-    ports:
-      - "${TURN_PORT:-3478}:3478"
-      - "${TURN_PORT:-3478}:3478/udp"
-      - "5349:5349"
-      - "5349:5349/udp"
-      - "49152-65535:49152-65535/udp"
-    environment:
-      - TURN_SECRET=${TURN_SECRET:-breadcall-turn-secret}
-      - TURN_REALM=${TURN_REALM:-BreadCall}
-      - EXTERNAL_IP=${EXTERNAL_IP:-localhost}
-    volumes:
-      - ./docker/coturn/turnserver.conf:/etc/turnserver.conf:ro
-      - ./certs:/etc/coturn/certs:ro
-      - turn-logs:/var/log/turnserver
-    networks:
-      - breadcall-network
-    restart: unless-stopped
-    sysctls:
-      - net.ipv4.ip_forward=1
-      - net.ipv4.conf.all.src_valid_mark=1
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
 
   # Web Frontend (nginx)
   web:
@@ -62,23 +43,39 @@ services:
     restart: unless-stopped
     depends_on:
       - signaling
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 64M
 
-  # SRT Gateway (optional - Phase 4)
-  srt-gateway:
-    build:
-      context: ./srt-gateway
-      dockerfile: Dockerfile
+  # OvenMediaEngine SFU
+  ovenmediaengine:
+    image: airensoft/ovenmediaengine:latest
     ports:
-      - "8080:8080"
-      - "9000-9100:9000-9100/udp"
+      - "3333:3333"                 # WebRTC Signaling
+      - "3478:3478"                 # TURN TCP
+      - "3478:3478/udp"             # TURN UDP
+      - "8081:8081"                 # REST API
+      - "9999:9999/udp"             # SRT Ingest / Publish
+      - "10000-10010:10000-10010/udp" # WebRTC ICE Candidates
+    volumes:
+      - ./docker/ome/Server.xml:/opt/ovenmediaengine/bin/origin_conf/Server.xml:ro
     environment:
-      - SIGNALING_URL=ws://signaling:3000/ws
-      - SRT_PORT_RANGE=9000-9100
+      - OME_HOST_IP=${EXTERNAL_IP:-127.0.0.1}
+      - OME_REST_KEY=${TURN_SECRET:-breadcall-turn-secret}
     networks:
       - breadcall-network
     restart: unless-stopped
-    profiles:
-      - srt
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+          cpus: '1.5'
+        reservations:
+          memory: 256M
 
 networks:
   breadcall-network:

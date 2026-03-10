@@ -12,6 +12,7 @@ class SignalingClient extends EventTarget {
     this.reconnectDelay = 1000; // Start at 1s
     this.maxReconnectDelay = 30000; // Max 30s
     this.messageQueue = [];
+    this.maxQueueSize = 100; // Prevent memory leaks
     this.pingInterval = null;
   }
 
@@ -87,7 +88,11 @@ class SignalingClient extends EventTarget {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
     } else {
-      // Queue message for later
+      // Queue message for later with FIFO eviction to prevent memory leaks
+      if (this.messageQueue.length >= this.maxQueueSize) {
+        this.messageQueue.shift(); // Remove oldest message
+        console.warn('[SignalingClient] Message queue full, dropping oldest message');
+      }
       this.messageQueue.push({ type, payload });
     }
   }

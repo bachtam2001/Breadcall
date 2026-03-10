@@ -92,20 +92,34 @@ app.get('/api/rooms/:roomId/participants', (req, res) => {
   res.json({ success: true, participants });
 });
 
-// Get TURN credentials
-app.get('/api/turn-credentials', (req, res) => {
-  // TODO: Implement time-limited HMAC credentials
+// Get OME configuration for clients
+app.get('/api/ome-config', (req, res) => {
+  const hostIp = process.env.EXTERNAL_IP || process.env.OME_HOST_IP || 'localhost';
+  const webrtcPort = process.env.OME_WEBRTC_PORT || '3333';
+
   res.json({
     success: true,
-    urls: ['stun:stun.l.google.com:19302'],
-    username: '',
-    credential: ''
+    omeUrl: `http://${hostIp}:${webrtcPort}`,
+    appProfile: 'app', // Matching Server.xml config
   });
 });
 
+// Allowed origins for WebSocket connections
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : ['http://localhost:3000', 'http://localhost:8080'];
+
 // Handle WebSocket connections
 wss.on('connection', (ws, req) => {
-  console.log('[WebSocket] New connection');
+  // Validate origin
+  const origin = req.headers.origin;
+  if (origin && !ALLOWED_ORIGINS.includes(origin)) {
+    console.warn(`[WebSocket] Rejected connection from unauthorized origin: ${origin}`);
+    ws.close(1008, 'Unauthorized origin');
+    return;
+  }
+
+  console.log(`[WebSocket] New connection from ${origin || 'unknown origin'}`);
 
   signalingHandler.handleConnection(ws);
 

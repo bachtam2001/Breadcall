@@ -13,11 +13,17 @@ class BreadCallApp {
     this.localStream = null;
     this.isScreenSharing = false;
     this.screenStream = null;
+    this.omeConfig = null; // Store OME configuration
 
     this.init();
   }
 
   async init() {
+    const configLoaded = await this.fetchOmeConfig();
+    if (!configLoaded) {
+      console.warn('[BreadCallApp] Running without SFU configuration');
+    }
+
     this.setupSignalingHandlers();
     this.setupMediaHandlers();
     this.setupWebRTCHandlers();
@@ -36,22 +42,27 @@ class BreadCallApp {
       this.participantId = participantId;
 
       if (!this.webrtc) {
-        this.webrtc = new WebRTCManager(this.signaling);
+        this.webrtc = new WebRTCManager(this.signaling, { omeConfig: this.omeConfig });
         this.setupWebRTCHandlers();
       }
 
+      const localStreamName = `${this.roomId}_${this.participantId}`;
       if (this.localStream) {
-        this.webrtc.setLocalStream(this.localStream);
+        this.webrtc.setLocalStream(this.localStream, localStreamName);
       }
 
       existingPeers.forEach(peer => {
-        this.webrtc.createOffer(peer.participantId);
+        if (peer.streamName) {
+          this.webrtc.consumeRemoteStream(peer.participantId, peer.streamName);
+        }
       });
     });
 
     this.signaling.addEventListener('participant-joined', (e) => {
-      const { participantId } = e.detail;
-      if (this.webrtc) this.webrtc.createOffer(participantId);
+      const { participantId, streamName } = e.detail;
+      if (this.webrtc && streamName) {
+        this.webrtc.consumeRemoteStream(participantId, streamName);
+      }
     });
 
     this.signaling.addEventListener('participant-left', (e) => {
@@ -75,26 +86,43 @@ class BreadCallApp {
       this.uiManager.updateParticipantStatus(participantId, { isMuted });
     });
 
-    this.signaling.addEventListener('offer', (e) => {
-      const { from, sdp } = e.detail;
-      if (this.webrtc) this.webrtc.handleOffer(from, sdp);
-    });
+    // P2P Signaling ignored in SFU mode
+    /*
+    this.signaling.addEventListener('offer', ...);
+    this.signaling.addEventListener('answer', ...);
+    this.signaling.addEventListener('ice-candidate', ...);
+    */
+  }
 
-    this.signaling.addEventListener('answer', (e) => {
-      const { from, sdp } = e.detail;
-      if (this.webrtc) this.webrtc.handleAnswer(from, sdp);
-    });
-
-    this.signaling.addEventListener('ice-candidate', (e) => {
-      const { from, candidate } = e.detail;
-      if (this.webrtc) this.webrtc.handleIceCandidate(from, candidate);
-    });
+  async fetchOmeConfig() {
+    try {
+      const response = await fetch('/api/ome-config');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      if (data.success) {
+        this.omeConfig = data;
+        console.log('[BreadCallApp] OME Config loaded:', this.omeConfig);
+        return true;
+      } else {
+        throw new Error('Invalid response format');
+      }
+    } catch (err) {
+      console.error('[BreadCallApp] Failed to fetch OME config:', err);
+      this.uiManager.showToast('SFU config failed, fallback to P2P might occur', 'warning');
+      this.omeConfig = null; // Ensure config is null on failure
+      return false;
+    }
   }
 
   setupMediaHandlers() {
     this.mediaManager.addEventListener('stream-created', (e) => {
       this.localStream = e.detail.stream;
-      if (this.webrtc) this.webrtc.setLocalStream(this.localStream);
+      const localStreamName = this.roomId && this.participantId ? `${this.roomId}_${this.participantId}` : null;
+      if (this.webrtc && localStreamName) {
+        this.webrtc.setLocalStream(this.localStream, localStreamName);
+      }
       this.uiManager.addVideoTile(this.participantId || 'local', this.localStream, 'You');
     });
 
@@ -147,12 +175,8 @@ class BreadCallApp {
       this.roomId = hash.split('/')[2];
       this.uiManager.renderRoom(this.roomId);
       this.joinRoom(this.roomId);
-    } else if (hash.startsWith('#/view/')) {
-      const parts = hash.split('/');
-      this.renderSoloView(parts[2], parts[3]);
-    } else if (hash.startsWith('#/director/')) {
-      this.renderDirectorView(hash.split('/')[2]);
     }
+    // SoloView and DirectorView now self-initialize based on hash in their respective files
   }
 
   async createRoom(options = {}) {
@@ -178,8 +202,21 @@ class BreadCallApp {
       await this.mediaManager.getUserMedia();
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+
+      // Wait for connection before sending join-room to prevent race condition
+      const onConnected = () => {
+        this.signaling.send('join-room', { roomId, name: 'User' });
+      };
+
+      this.signaling.addEventListener('connected', onConnected, { once: true });
       this.signaling.connect(wsUrl);
-      this.signaling.send('join-room', { roomId, name: 'User' });
+
+      // Set a timeout to handle connection failures
+      setTimeout(() => {
+        if (!this.participantId) {
+          this.uiManager.showToast('Failed to connect to signaling server', 'error');
+        }
+      }, 10000);
     } catch (error) {
       this.uiManager.showToast('Failed to join room: ' + error.message, 'error');
     }
@@ -256,137 +293,6 @@ class BreadCallApp {
     } catch (error) {
       this.uiManager.showToast('Failed to switch microphone', 'error');
     }
-  }
-
-  renderSoloView(roomId, streamId) {
-    document.body.innerHTML = '<div class="solo-view"><video autoplay playsinline></video></div>';
-    const video = document.querySelector('video');
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
-
-    const signaling = new SignalingClient();
-    const webrtc = new WebRTCManager(signaling);
-
-    signaling.connect(wsUrl);
-
-    signaling.addEventListener('connected', () => {
-      signaling.send('join-room', { roomId, name: 'SoloView' });
-    });
-
-    webrtc.addEventListener('remote-stream', (e) => {
-      video.srcObject = e.detail.stream;
-    });
-
-    signaling.addEventListener('offer', (e) => {
-      const { from, sdp } = e.detail;
-      if (from === streamId || streamId === 'any') {
-        webrtc.handleOffer(from, sdp);
-      }
-    });
-
-    signaling.addEventListener('answer', (e) => {
-      const { from, sdp } = e.detail;
-      webrtc.handleAnswer(from, sdp);
-    });
-
-    signaling.addEventListener('ice-candidate', (e) => {
-      const { from, candidate } = e.detail;
-      webrtc.handleIceCandidate(from, candidate);
-    });
-
-    setTimeout(() => webrtc.createOffer(streamId), 500);
-  }
-
-  renderDirectorView(roomId) {
-    document.body.innerHTML = `
-      <div class="director-dashboard">
-        <div class="director-header" style="padding: 16px 24px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <h1 style="margin: 0 0 8px 0;">Director Dashboard</h1>
-            <p style="margin: 0; color: var(--color-text-secondary);">Room: <strong>${roomId}</strong></p>
-          </div>
-          <div class="director-stats">
-            <div class="stat-item" style="text-align: center;">
-              <div class="stat-value" id="participant-count" style="font-size: 32px; font-weight: 700; color: var(--color-accent-primary);">0</div>
-              <div class="stat-label" style="font-size: 12px; color: var(--color-text-tertiary);">Participants</div>
-            </div>
-          </div>
-        </div>
-        <div id="director-grid" class="director-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 16px;"></div>
-        <div id="toast-container" class="toast-container"></div>
-      </div>
-    `;
-
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
-
-    const signaling = new SignalingClient();
-    const webrtc = new WebRTCManager(signaling);
-    const participants = new Map();
-
-    signaling.connect(wsUrl);
-
-    signaling.addEventListener('joined-room', (e) => {
-      const { existingPeers } = e.detail;
-      document.getElementById('participant-count').textContent = existingPeers.length;
-      existingPeers.forEach(peer => {
-        this.addDirectorCard(peer.participantId, peer.name, roomId);
-        webrtc.createOffer(peer.participantId);
-      });
-    });
-
-    signaling.addEventListener('participant-joined', (e) => {
-      const { participantId, name } = e.detail;
-      this.addDirectorCard(participantId, name, roomId);
-      webrtc.createOffer(participantId);
-      const countEl = document.getElementById('participant-count');
-      countEl.textContent = parseInt(countEl.textContent) + 1;
-    });
-
-    signaling.addEventListener('participant-left', (e) => {
-      const { participantId } = e.detail;
-      const card = document.getElementById(`director-card-${participantId}`);
-      if (card) card.remove();
-      const countEl = document.getElementById('participant-count');
-      countEl.textContent = Math.max(0, parseInt(countEl.textContent) - 1);
-    });
-
-    webrtc.addEventListener('remote-stream', (e) => {
-      const { peerId, stream } = e.detail;
-      const card = document.getElementById(`director-card-${peerId}`);
-      if (card) {
-        const video = card.querySelector('video');
-        if (video) video.srcObject = stream;
-      }
-    });
-
-    signaling.send('join-room', { roomId, name: 'Director' });
-
-    // Store for global access
-    window.directorView = { signaling, webrtc, participants };
-  }
-
-  addDirectorCard(peerId, name, roomId) {
-    const grid = document.getElementById('director-grid');
-    if (!grid) return;
-
-    const card = document.createElement('div');
-    card.className = 'director-card glass-panel animate-fade-in';
-    card.id = `director-card-${peerId}`;
-    card.innerHTML = `
-      <video autoplay muted playsinline style="width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 8px; background: var(--color-bg-primary);"></video>
-      <div style="padding: 12px 0 0 0;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-          <span style="font-weight: 500;">${this.escapeHtml(name)}</span>
-          <span class="connection-status" style="font-size: 12px; color: var(--color-success);">Connected</span>
-        </div>
-        <div class="director-card-controls" style="display: flex; flex-wrap: wrap; gap: 8px;">
-          <button class="btn btn-sm btn-secondary" onclick="navigator.clipboard.writeText('${window.location.origin}/#/view/${roomId}/${peerId}')">Copy Link</button>
-          <button class="btn btn-sm btn-danger" onclick="alert('Kick functionality coming soon')">Kick</button>
-        </div>
-      </div>
-    `;
-    grid.appendChild(card);
   }
 
   escapeHtml(str) {

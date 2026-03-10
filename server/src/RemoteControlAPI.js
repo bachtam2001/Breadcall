@@ -1,4 +1,5 @@
 const { EventEmitter } = require('events');
+const crypto = require('crypto');
 
 /**
  * RemoteControlAPI - HTTP/WebSocket API for external control
@@ -20,7 +21,10 @@ class RemoteControlAPI extends EventEmitter {
    * @returns {string} - Generated API key
    */
   registerApiKey(name, permissions = []) {
-    const apiKey = `breadcall_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+    // Use cryptographically secure random bytes instead of Math.random()
+    const randomBytes = crypto.randomBytes(16).toString('hex');
+    const timestamp = Date.now().toString(36);
+    const apiKey = `breadcall_${timestamp}_${randomBytes}`;
     this.apiKeys.set(apiKey, { name, permissions, createdAt: new Date() });
     console.log(`[RemoteControlAPI] Registered API key: ${name}`);
     return apiKey;

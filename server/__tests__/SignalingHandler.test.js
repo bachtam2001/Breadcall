@@ -67,7 +67,7 @@ describe('SignalingHandler', () => {
 
     test('should handle join error', () => {
       signalingHandler.handleJoinRoom(mockWs, {
-        roomId: 'INVALID'
+        roomId: 'XYZ8'
       });
 
       expect(mockWs.send).toHaveBeenCalledWith(

@@ -1,5 +1,40 @@
 const WebSocket = require('ws');
 
+/**
+ * Sanitize user input to prevent XSS
+ * @param {string} input - Raw input string
+ * @returns {string} - Sanitized string
+ */
+function sanitizeInput(input) {
+  if (typeof input !== 'string') return '';
+  return input
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+    .replace(/\//g, '&#x2F;');
+}
+
+/**
+ * Validate room ID format (4 uppercase alphanumeric characters, excluding ambiguous chars)
+ * Matches RoomManager.generateRoomId() format: ABCDEFGHJKLMNPQRSTUVWXYZ23456789
+ * @param {string} roomId - Room ID to validate
+ * @returns {boolean}
+ */
+function isValidRoomId(roomId) {
+  return typeof roomId === 'string' && /^[A-Z0-9]{4}$/.test(roomId);
+}
+
+/**
+ * Validate message length and content
+ * @param {string} message - Message to validate
+ * @returns {boolean}
+ */
+function isValidMessage(message) {
+  return typeof message === 'string' && message.length > 0 && message.length <= 1000;
+}
+
 class SignalingHandler {
   constructor(roomManager, wss) {
     this.roomManager = roomManager;
@@ -136,9 +171,15 @@ class SignalingHandler {
       return;
     }
 
+    // Validate room ID format (4 alphanumeric characters)
+    if (!isValidRoomId(roomId)) {
+      this.sendError(ws, 'Invalid room ID format');
+      return;
+    }
+
     try {
       const result = this.roomManager.joinRoom(roomId, {
-        name,
+        name: name ? sanitizeInput(name.substring(0, 50)) : undefined,
         password,
         ws
       });
@@ -161,7 +202,8 @@ class SignalingHandler {
       this.broadcastToRoom(roomId, {
         type: 'participant-joined',
         participantId: result.participantId,
-        name: name || 'Anonymous'
+        streamName: result.participantId ? `${roomId}_${result.participantId}` : undefined,
+        name: name ? sanitizeInput(name.substring(0, 50)) : 'Anonymous'
       }, ws);
 
       console.log(`[Signaling] Participant ${result.participantId} joined room ${roomId}`);
@@ -309,8 +351,14 @@ class SignalingHandler {
   handleChatMessage(ws, payload) {
     const { message } = payload || {};
 
+    // Validate message presence and format
     if (!message) {
       this.sendError(ws, 'Message is required');
+      return;
+    }
+
+    if (!isValidMessage(message)) {
+      this.sendError(ws, 'Invalid message format or length exceeded');
       return;
     }
 
@@ -320,11 +368,14 @@ class SignalingHandler {
       return;
     }
 
+    // Sanitize message to prevent XSS
+    const sanitizedMessage = sanitizeInput(message.trim());
+
     // Broadcast chat message to room
     this.broadcastToRoom(connection.roomId, {
       type: 'chat-message',
       from: connection.participantId,
-      message,
+      message: sanitizedMessage,
       timestamp: new Date().toISOString()
     });
   }

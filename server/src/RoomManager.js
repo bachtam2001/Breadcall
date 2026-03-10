@@ -75,10 +75,12 @@ class RoomManager {
 
     // Generate participant ID
     const participantId = uuidv4();
+    const streamName = `${roomId}_${participantId}`;
 
     const participantData = {
       participantId,
       roomId,
+      streamName, // OME specific stream name
       name: participant.name || 'Anonymous',
       joinedAt: new Date().toISOString(),
       isSendingVideo: false,
@@ -102,6 +104,7 @@ class RoomManager {
       .filter(p => p.participantId !== participantId)
       .map(p => ({
         participantId: p.participantId,
+        streamName: p.streamName, // Send streamName to peers so they can WHEP it
         name: p.name,
         isSendingVideo: p.isSendingVideo,
         isSendingAudio: p.isSendingAudio
