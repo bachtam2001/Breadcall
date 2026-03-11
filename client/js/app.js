@@ -13,13 +13,16 @@ class BreadCallApp {
     this.localStream = null;
     this.isScreenSharing = false;
     this.screenStream = null;
-    this.omeConfig = null; // Store OME configuration
+    this.webrtcConfig = null; // Store WebRTC configuration
+    this.hasConnected = false; // Track first connection to prevent notification loops
+    this.joinTimeoutId = null; // Track join timeout for cleanup
+    this.isJoining = false; // Prevent concurrent join attempts
 
     this.init();
   }
 
   async init() {
-    const configLoaded = await this.fetchOmeConfig();
+    const configLoaded = await this.fetchWebRTCConfig();
     if (!configLoaded) {
       console.warn('[BreadCallApp] Running without SFU configuration');
     }
@@ -34,15 +37,26 @@ class BreadCallApp {
 
   setupSignalingHandlers() {
     this.signaling.addEventListener('connected', () => {
-      this.uiManager.showToast('Connected to server', 'success');
+      // Only show toast on first connection, not reconnections
+      if (!this.hasConnected) {
+        this.uiManager.showToast('Connected to server', 'success');
+        this.hasConnected = true;
+      }
     });
 
     this.signaling.addEventListener('joined-room', (e) => {
       const { participantId, existingPeers } = e.detail;
       this.participantId = participantId;
 
+      // Clear join timeout and reset joining state
+      if (this.joinTimeoutId) {
+        clearTimeout(this.joinTimeoutId);
+        this.joinTimeoutId = null;
+      }
+      this.isJoining = false;
+
       if (!this.webrtc) {
-        this.webrtc = new WebRTCManager(this.signaling, { omeConfig: this.omeConfig });
+        this.webrtc = new WebRTCManager(this.signaling, { config: this.webrtcConfig });
         this.setupWebRTCHandlers();
       }
 
@@ -71,6 +85,22 @@ class BreadCallApp {
       if (this.webrtc) this.webrtc.closePeerConnection(participantId);
     });
 
+    this.signaling.addEventListener('error', (e) => {
+      const { message } = e.detail;
+      console.error('[BreadCallApp] Server error:', message);
+
+      // Reset joining state on any error during join process
+      if (this.isJoining) {
+        this.isJoining = false;
+        if (this.joinTimeoutId) {
+          clearTimeout(this.joinTimeoutId);
+          this.joinTimeoutId = null;
+        }
+      }
+
+      this.uiManager.showToast(message || 'Connection error', 'error');
+    });
+
     this.signaling.addEventListener('chat-message', (e) => {
       const { from, message, timestamp } = e.detail;
       const participant = this.uiManager.participants.get(from);
@@ -94,24 +124,19 @@ class BreadCallApp {
     */
   }
 
-  async fetchOmeConfig() {
+  async fetchWebRTCConfig() {
     try {
-      const response = await fetch('/api/ome-config');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      const response = await fetch('/api/webrtc-config');
+      if (!response.ok) throw new Error('Config unavailable');
       const data = await response.json();
       if (data.success) {
-        this.omeConfig = data;
-        console.log('[BreadCallApp] OME Config loaded:', this.omeConfig);
+        this.webrtcConfig = data;
         return true;
-      } else {
-        throw new Error('Invalid response format');
       }
     } catch (err) {
-      console.error('[BreadCallApp] Failed to fetch OME config:', err);
-      this.uiManager.showToast('SFU config failed, fallback to P2P might occur', 'warning');
-      this.omeConfig = null; // Ensure config is null on failure
+      console.error('[BreadCallApp] Failed to fetch WebRTC config:', err);
+      this.uiManager.showToast('SFU config failed', 'warning');
+      this.webrtcConfig = null;
       return false;
     }
   }
@@ -119,11 +144,38 @@ class BreadCallApp {
   setupMediaHandlers() {
     this.mediaManager.addEventListener('stream-created', (e) => {
       this.localStream = e.detail.stream;
+      const isTestMode = e.detail.testMode || false;
       const localStreamName = this.roomId && this.participantId ? `${this.roomId}_${this.participantId}` : null;
       if (this.webrtc && localStreamName) {
         this.webrtc.setLocalStream(this.localStream, localStreamName);
       }
-      this.uiManager.addVideoTile(this.participantId || 'local', this.localStream, 'You');
+      this.uiManager.addVideoTile(this.participantId || 'local', this.localStream, isTestMode ? 'You (Test Mode)' : 'You');
+    });
+
+    // Handle case when no media devices are found
+    this.mediaManager.addEventListener('devices-not-found', (e) => {
+      console.warn('[BreadCallApp] No media devices available:', e.detail.message);
+
+      // Show dialog with options
+      this.uiManager.showMediaNotFoundDialog(
+        // Retry
+        () => {
+          this.mediaManager.getUserMedia().catch(() => {
+            this.uiManager.showToast('Still no devices found', 'warning');
+          });
+        },
+        // Continue without media
+        () => {
+          this.uiManager.showToast('Joined in view-only mode', 'info');
+        },
+        // Enable test mode
+        () => {
+          this.mediaManager.setTestMode(true);
+          this.mediaManager.getUserMedia().catch(() => {
+            this.uiManager.showToast('Test mode failed', 'error');
+          });
+        }
+      );
     });
 
     this.mediaManager.addEventListener('mute-changed', (e) => {
@@ -172,7 +224,7 @@ class BreadCallApp {
     if (!hash || hash === '#/' || hash === '') {
       this.uiManager.renderLanding();
     } else if (hash.startsWith('#/room/')) {
-      this.roomId = hash.split('/')[2];
+      this.roomId = hash.split('/')[2]?.toUpperCase();
       this.uiManager.renderRoom(this.roomId);
       this.joinRoom(this.roomId);
     }
@@ -198,11 +250,24 @@ class BreadCallApp {
   }
 
   async joinRoom(roomId) {
-    try {
-      await this.mediaManager.getUserMedia();
-      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+    // Prevent multiple concurrent join attempts
+    if (this.isJoining) {
+      console.log('[BreadCallApp] Already joining, ignoring duplicate request');
+      return;
+    }
+    this.isJoining = true;
 
+    // Clear any previous join timeout
+    if (this.joinTimeoutId) {
+      clearTimeout(this.joinTimeoutId);
+      this.joinTimeoutId = null;
+    }
+
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+
+    // Connect to signaling server first
+    if (!this.signaling.isConnected()) {
       // Wait for connection before sending join-room to prevent race condition
       const onConnected = () => {
         this.signaling.send('join-room', { roomId, name: 'User' });
@@ -210,19 +275,35 @@ class BreadCallApp {
 
       this.signaling.addEventListener('connected', onConnected, { once: true });
       this.signaling.connect(wsUrl);
-
-      // Set a timeout to handle connection failures
-      setTimeout(() => {
-        if (!this.participantId) {
-          this.uiManager.showToast('Failed to connect to signaling server', 'error');
-        }
-      }, 10000);
-    } catch (error) {
-      this.uiManager.showToast('Failed to join room: ' + error.message, 'error');
+    } else {
+      this.signaling.send('join-room', { roomId, name: 'User' });
     }
+
+    // Try to get media, but don't block joining if it fails
+    this.mediaManager.getUserMedia()
+      .catch((error) => {
+        // Media failure is handled by the devices-not-found event
+        // User can still join in view-only mode
+        console.warn('[BreadCallApp] Joining without media:', error.message);
+      });
+
+    // Set a timeout to handle connection failures
+    this.joinTimeoutId = setTimeout(() => {
+      if (!this.participantId) {
+        this.uiManager.showToast('Failed to connect to signaling server', 'error');
+        this.isJoining = false;
+      }
+    }, 10000);
   }
 
   leaveRoom() {
+    // Clear any pending join timeout
+    if (this.joinTimeoutId) {
+      clearTimeout(this.joinTimeoutId);
+      this.joinTimeoutId = null;
+    }
+    this.isJoining = false;
+
     if (this.signaling) {
       this.signaling.send('leave-room');
       this.signaling.disconnect();
@@ -231,6 +312,7 @@ class BreadCallApp {
     if (this.mediaManager) this.mediaManager.stop();
     this.roomId = null;
     this.participantId = null;
+    this.hasConnected = false; // Reset for next room join
     window.location.hash = '#/';
   }
 
@@ -302,7 +384,13 @@ class BreadCallApp {
   }
 }
 
-// Initialize app when DOM is ready
+// Initialize app when DOM is ready (only for main room view, not director/solo views)
 document.addEventListener('DOMContentLoaded', () => {
+  const hash = window.location.hash;
+  // Don't initialize main app for director, solo, or other special views
+  if (hash.startsWith('#/director/') || hash.startsWith('#/view/')) {
+    console.log('[BreadCallApp] Skipping initialization for special view:', hash);
+    return;
+  }
   window.app = new BreadCallApp();
 });

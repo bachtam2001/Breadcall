@@ -92,22 +92,26 @@ app.get('/api/rooms/:roomId/participants', (req, res) => {
   res.json({ success: true, participants });
 });
 
-// Get OME configuration for clients
-app.get('/api/ome-config', (req, res) => {
-  const hostIp = process.env.EXTERNAL_IP || process.env.OME_HOST_IP || 'localhost';
-  const webrtcPort = process.env.OME_WEBRTC_PORT || '3333';
+// Get WebRTC configuration for clients
+app.get('/api/webrtc-config', (req, res) => {
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+  // X-Forwarded-Host may include port (e.g., localhost:3000) - use it for proxied environments
+  const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
+  // WebRTC traffic goes through nginx proxy, use same host as signaling
+  const webrtcUrl = `${protocol}://${host}`;
 
   res.json({
     success: true,
-    omeUrl: `http://${hostIp}:${webrtcPort}`,
-    appProfile: 'app', // Matching Server.xml config
+    webrtcUrl: webrtcUrl,
+    app: '',
+    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
   });
 });
 
 // Allowed origins for WebSocket connections
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',')
-  : ['http://localhost:3000', 'http://localhost:8080'];
+  : ['http://localhost', 'http://localhost:80', 'http://localhost:3000', 'http://localhost:8080', 'https://localhost'];
 
 // Handle WebSocket connections
 wss.on('connection', (ws, req) => {

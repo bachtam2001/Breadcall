@@ -1,28 +1,25 @@
-import { WHIPClient } from './WHIPClient.js';
-import { WHEPClient } from './WHEPClient.js';
-
 /**
- * WebRTCManager - Handles SFU WebRTC management using OvenMediaEngine (WHIP/WHEP)
+ * WebRTCManager - Handles SFU WebRTC management using MediaMTX (WHIP/WHEP)
  */
 class WebRTCManager extends EventTarget {
   constructor(signalingClient, options = {}) {
     super();
     this.signaling = signalingClient;
-    this.omeConfig = options.omeConfig || null; // { omeUrl, appProfile }
+    this.config = options.config || null; // { webrtcUrl, app, iceServers }
 
     this.whipClient = null;
-    this.whepClients = new Map(); // participantId -> WHEPClient
+    this.playbackConnections = new Map(); // participantId -> { pc }
     this.localStream = null;
 
     this.bandwidth = options.bandwidth || { min: 30, max: 3000 };
   }
 
   /**
-   * Set OME configuration
+   * Set WebRTC configuration
    */
-  setOmeConfig(config) {
-    this.omeConfig = config;
-    console.log('[WebRTCManager] OME Config updated:', config);
+  setConfig(config) {
+    this.config = config;
+    console.log('[WebRTCManager] WebRTC Config updated:', config);
   }
 
   /**
@@ -31,8 +28,8 @@ class WebRTCManager extends EventTarget {
    * @param {string} streamName - Unique stream name from backend
    */
   async setLocalStream(stream, streamName) {
-    if (!this.omeConfig) {
-      console.error('[WebRTCManager] Cannot publish: OME config missing');
+    if (!this.config) {
+      console.error('[WebRTCManager] Cannot publish: WebRTC config missing');
       return;
     }
 
@@ -42,8 +39,14 @@ class WebRTCManager extends EventTarget {
       await this.whipClient.stop();
     }
 
-    const whipEndpoint = `${this.omeConfig.omeUrl}/${this.omeConfig.appProfile}/${streamName}`;
-    this.whipClient = new WHIPClient(whipEndpoint);
+    // MediaMTX WHIP endpoint format: {webrtcUrl}/{streamName}/whip
+    const webrtcUrl = this.config.webrtcUrl;
+    const whipEndpoint = `${webrtcUrl}/${streamName}/whip`;
+    this.whipClient = new WHIPClient(whipEndpoint, {
+      authToken: this.config.authToken,
+      videoCodec: 'H265',
+      audioCodec: 'opus'
+    });
 
     try {
       await this.whipClient.publish(this.localStream);
@@ -55,41 +58,49 @@ class WebRTCManager extends EventTarget {
   }
 
   /**
-   * Consume a remote participant's stream via WHEP
-   * @param {string} participantId 
-   * @param {string} streamName 
+   * Consume a remote participant's stream via WHEP (HTTP-only)
+   * Uses standard WHEP protocol with POST for SDP exchange
+   * Based on MediaMTX WebRTC reader
+   * @param {string} participantId
+   * @param {string} streamName
    */
   async consumeRemoteStream(participantId, streamName) {
-    if (!this.omeConfig) {
-      console.error('[WebRTCManager] Cannot consume: OME config missing');
+    if (!this.config) {
+      console.error('[WebRTCManager] Cannot consume: WebRTC config missing');
       return;
     }
 
-    if (this.whepClients.has(participantId)) {
-      await this.whepClients.get(participantId).stop();
+    if (this.playbackConnections.has(participantId)) {
+      await this.closePlaybackConnection(participantId);
     }
 
-    const whepEndpoint = `${this.omeConfig.omeUrl}/${this.omeConfig.appProfile}/${streamName}`;
+    // MediaMTX WHEP endpoint format: {webrtcUrl}/{streamName}/whep
+    const webrtcUrl = this.config.webrtcUrl;
+    const whepEndpoint = `${webrtcUrl}/${streamName}/whep`;
 
-    // We create a ghost video element or just emit the stream
-    const tempVideo = document.createElement('video');
-    const client = new WHEPClient(whepEndpoint, tempVideo);
-    this.whepClients.set(participantId, client);
+    console.log('[WebRTCManager] Connecting to MediaMTX for WHEP playback:', whepEndpoint);
 
     try {
-      await client.consume();
+      // Create WHEP client with MediaMTX WebRTC reader pattern
+      const whepClient = new WHEPClient(whepEndpoint, null, {
+        authToken: this.config.authToken,
+        videoCodec: 'H265',
+        audioCodec: 'opus',
+        onTrack: (event) => {
+          console.log('[WebRTCManager] Received track from', participantId, event.track.kind);
+          const remoteStream = event.streams[0];
+          this.dispatchEvent(new CustomEvent('remote-stream', {
+            detail: { peerId: participantId, stream: remoteStream }
+          }));
+        }
+      });
 
-      // Listen for track events from WHEP PC
-      client.pc.ontrack = (event) => {
-        const remoteStream = event.streams[0];
-        this.dispatchEvent(new CustomEvent('remote-stream', {
-          detail: { peerId: participantId, stream: remoteStream }
-        }));
-      };
+      // Consume the stream
+      whepClient.consume();
 
-      this.dispatchEvent(new CustomEvent('connection-state-change', {
-        detail: { peerId: participantId, state: 'connected' }
-      }));
+      // Store connection
+      this.playbackConnections.set(participantId, { pc: whepClient.pc, whepClient });
+
     } catch (err) {
       console.error('[WebRTCManager] WHEP Consume error:', err);
       this.dispatchEvent(new CustomEvent('error', { detail: err }));
@@ -103,10 +114,19 @@ class WebRTCManager extends EventTarget {
    * Close a specific remote connection
    */
   async closePeerConnection(participantId) {
-    const client = this.whepClients.get(participantId);
-    if (client) {
-      await client.stop();
-      this.whepClients.delete(participantId);
+    await this.closePlaybackConnection(participantId);
+  }
+
+  /**
+   * Close playback connection for a participant
+   */
+  async closePlaybackConnection(participantId) {
+    const conn = this.playbackConnections.get(participantId);
+    if (conn) {
+      // Close WHEP client (handles DELETE request)
+      if (conn.whepClient) await conn.whepClient.stop();
+      if (conn.pc) conn.pc.close();
+      this.playbackConnections.delete(participantId);
       this.dispatchEvent(new CustomEvent('peer-removed', { detail: { peerId: participantId } }));
     }
   }
@@ -147,8 +167,8 @@ class WebRTCManager extends EventTarget {
     if (participantId === 'local' && this.whipClient) {
       return this.whipClient.pc.getStats();
     }
-    const client = this.whepClients.get(participantId);
-    if (client) return client.pc.getStats();
+    const conn = this.playbackConnections.get(participantId);
+    if (conn && conn.pc) return conn.pc.getStats();
     return null;
   }
 
@@ -157,7 +177,23 @@ class WebRTCManager extends EventTarget {
    * @returns {Array<string>}
    */
   getPeerIds() {
-    return Array.from(this.whepClients.keys());
+    return Array.from(this.playbackConnections.keys());
+  }
+
+  /**
+   * Get connection state for a participant
+   * @param {string} participantId
+   * @returns {string} Connection state: 'connected', 'connecting', 'disconnected', 'failed', or 'unknown'
+   */
+  getConnectionState(participantId) {
+    if (participantId === 'local' && this.whipClient) {
+      return this.whipClient.pc?.connectionState || 'unknown';
+    }
+    const conn = this.playbackConnections.get(participantId);
+    if (conn && conn.pc) {
+      return conn.pc.connectionState || 'connecting';
+    }
+    return 'unknown';
   }
 
   /**
@@ -165,15 +201,14 @@ class WebRTCManager extends EventTarget {
    */
   async cleanup() {
     if (this.whipClient) await this.whipClient.stop();
-    for (const client of this.whepClients.values()) {
-      await client.stop();
+    for (const participantId of this.playbackConnections.keys()) {
+      await this.closePlaybackConnection(participantId);
     }
-    this.whepClients.clear();
+    this.playbackConnections.clear();
     this.localStream = null;
   }
 }
 
 // Export for use
 window.WebRTCManager = WebRTCManager;
-export { WebRTCManager };
 

@@ -1,0 +1,23 @@
+# MediaMTX configuration for BreadCall
+# WHIP/WHEP WebRTC streaming
+
+# Disable unused protocols
+rtsp: false
+rtmp: false
+hls: false
+srt: true
+srtAddress: :8890
+
+# WebRTC configuration (WHIP/WHEP)
+webrtc: true
+webrtcAddress: :8887
+webrtcAllowOrigins: ['*']
+webrtcLocalUDPAddress: :9000
+webrtcLocalTCPAddress: :9000
+webrtcIPsFromInterfaces: true
+
+# Paths - allow any stream name (dynamic room/participant streams)
+paths:
+  # Wildcard path matches any stream name (e.g., ROOM_123_participantId)
+  '~^.*$':
+    source: publisher

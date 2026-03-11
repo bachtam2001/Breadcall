@@ -25,3 +25,7 @@ build/
 # Worktrees
 .worktrees/
 coverage/
+
+# Claude
+.claude/
+.playwright-mcp/

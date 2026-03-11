@@ -76,6 +76,73 @@ describe('SignalingHandler', () => {
     });
   });
 
+  describe('handleJoinRoomDirector', () => {
+    test('should reject director join without roomId', () => {
+      signalingHandler.handleJoinRoomDirector(mockWs, {});
+
+      expect(mockWs.send).toHaveBeenCalledWith(
+        expect.stringContaining('Room ID is required')
+      );
+    });
+
+    test('should reject director join with invalid roomId format', () => {
+      signalingHandler.handleJoinRoomDirector(mockWs, {
+        roomId: 'invalid-room-id'
+      });
+
+      expect(mockWs.send).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid room ID format')
+      );
+    });
+
+    test('should join room as director successfully', () => {
+      const room = roomManager.createRoom();
+
+      signalingHandler.handleJoinRoomDirector(mockWs, {
+        roomId: room.id,
+        name: 'Director'
+      });
+
+      expect(mockWs.send).toHaveBeenCalledWith(
+        expect.stringContaining('"joined-room"')
+      );
+      expect(mockWs.send).toHaveBeenCalledWith(
+        expect.stringContaining('"directorId"')
+      );
+    });
+
+    test('should return existing participants to director', () => {
+      const room = roomManager.createRoom();
+
+      // Add a participant first
+      const mockWs2 = {
+        send: jest.fn(),
+        readyState: WebSocket.OPEN,
+        close: jest.fn()
+      };
+      signalingHandler.handleJoinRoom(mockWs2, {
+        roomId: room.id,
+        name: 'Test Participant'
+      });
+
+      jest.clearAllMocks();
+
+      // Now director joins
+      signalingHandler.handleJoinRoomDirector(mockWs, {
+        roomId: room.id,
+        name: 'Director'
+      });
+
+      // Director should receive existing peers list (using existingPeers field name)
+      const response = JSON.parse(mockWs.send.mock.calls[0][0]);
+      expect(response.type).toBe('joined-room');
+      expect(response.existingPeers).toBeDefined();
+      expect(Array.isArray(response.existingPeers)).toBe(true);
+      expect(response.existingPeers.length).toBe(1);
+      expect(response.existingPeers[0].name).toBe('Test Participant');
+    });
+  });
+
   describe('handleLeaveRoom', () => {
     test('should reject leave when not in room', () => {
       signalingHandler.handleLeaveRoom(mockWs, {});

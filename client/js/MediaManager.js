@@ -15,14 +15,76 @@ class MediaManager extends EventTarget {
     this.audioContext = null;
     this.analyser = null;
     this.audioLevelInterval = null;
+    // Test mode for environments without media devices
+    this.testMode = window.location.search.includes('testMode=true') ||
+                    window.location.search.includes('testmode=true');
+  }
+
+  /**
+   * Create a fake media stream for testing
+   * Generates a canvas with animated content as a video source
+   * @returns {MediaStream} Fake media stream
+   */
+  createTestStream() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 480;
+    const ctx = canvas.getContext('2d');
+
+    // Draw animated test pattern
+    let frame = 0;
+    const draw = () => {
+      if (!canvas) return;
+      frame++;
+      // Gradient background
+      const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+      gradient.addColorStop(0, `hsl(${frame % 360}, 70%, 50%)`);
+      gradient.addColorStop(1, `hsl(${(frame + 180) % 360}, 70%, 50%)`);
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Draw text
+      ctx.fillStyle = 'white';
+      ctx.font = 'bold 24px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('TEST MODE', canvas.width / 2, canvas.height / 2 - 20);
+      ctx.fillText(`Frame: ${frame}`, canvas.width / 2, canvas.height / 2 + 20);
+
+      // Draw bouncing circle
+      const circleX = (canvas.width / 2) + Math.sin(frame * 0.05) * 150;
+      const circleY = (canvas.height / 2) + Math.cos(frame * 0.08) * 100;
+      ctx.beginPath();
+      ctx.arc(circleX, circleY, 30, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.fill();
+
+      requestAnimationFrame(draw);
+    };
+    draw();
+
+    const stream = canvas.captureStream(30); // 30 FPS
+    return stream;
   }
 
   /**
    * Get user media with default constraints
    * @param {Object} constraints - Media constraints
+   * @param {boolean} allowTestMode - Whether to use test stream if available
    * @returns {Promise<MediaStream>}
    */
-  async getUserMedia(constraints = {}) {
+  async getUserMedia(constraints = {}, allowTestMode = true) {
+    // Test mode: use fake stream
+    if (allowTestMode && this.testMode) {
+      console.log('[MediaManager] Using test mode - creating fake media stream');
+      const stream = this.createTestStream();
+      this.localStream = stream;
+      this.audioTrack = stream.getAudioTracks()[0] || null;
+      this.videoTrack = stream.getVideoTracks()[0];
+
+      this.dispatchEvent(new CustomEvent('stream-created', { detail: { stream, testMode: true } }));
+      return stream;
+    }
+
     const defaultConstraints = {
       audio: {
         echoCancellation: true,
@@ -46,13 +108,34 @@ class MediaManager extends EventTarget {
 
       this.setupAudioLevelMonitor(stream);
 
-      this.dispatchEvent(new CustomEvent('stream-created', { detail: { stream } }));
+      this.dispatchEvent(new CustomEvent('stream-created', { detail: { stream, testMode: false } }));
       return stream;
     } catch (error) {
       console.error('[MediaManager] getUserMedia error:', error);
       this.dispatchEvent(new CustomEvent('error', { detail: error }));
+
+      // If we failed and test mode is allowed, offer fallback
+      if (allowTestMode && error.name === 'NotFoundError') {
+        console.log('[MediaManager] No devices found - consider using ?testMode=true URL parameter');
+        this.dispatchEvent(new CustomEvent('devices-not-found', {
+          detail: {
+            message: 'No media devices found. Add ?testMode=true to URL for testing.',
+            error
+          }
+        }));
+      }
+
       throw error;
     }
+  }
+
+  /**
+   * Enable or disable test mode
+   * @param {boolean} enabled
+   */
+  setTestMode(enabled) {
+    this.testMode = enabled;
+    console.log('[MediaManager] Test mode:', enabled ? 'ON' : 'OFF');
   }
 
   /**

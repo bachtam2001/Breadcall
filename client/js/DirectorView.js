@@ -1,11 +1,11 @@
 /**
  * DirectorView - Director dashboard for managing room participants
+ * Uses MediaMTX embedded WebRTC player (iframe)
  */
 class DirectorView {
   constructor() {
     this.roomId = null;
     this.signaling = null;
-    this.webrtc = null;
     this.participants = new Map();
     this.statsInterval = null;
     this.init();
@@ -21,7 +21,7 @@ class DirectorView {
   parseUrl() {
     const hash = window.location.hash;
     const parts = hash.split('/');
-    this.roomId = parts[2];
+    this.roomId = parts[2]?.toUpperCase();
   }
 
   render() {
@@ -50,42 +50,28 @@ class DirectorView {
     const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
 
     this.signaling = new SignalingClient();
-    this.webrtc = new WebRTCManager(this.signaling);
-
-    this.signaling.connect(wsUrl);
 
     this.signaling.addEventListener('connected', () => {
       console.log('[Director] Connected');
-      this.signaling.send('join-room', { roomId: this.roomId, name: 'Director' });
+      this.signaling.send('join-room-director', { roomId: this.roomId, name: 'Director' });
     });
 
-    this.signaling.addEventListener('joined-room', async (e) => {
+    this.signaling.addEventListener('joined-room', (e) => {
       const { existingPeers } = e.detail;
       console.log('[Director] Joined room, existing peers:', existingPeers);
 
-      // Fetch OME Config if not already present
-      if (!this.webrtc.omeConfig) {
-        const response = await fetch('/api/ome-config');
-        const data = await response.json();
-        if (data.success) this.webrtc.setOmeConfig(data);
+      if (existingPeers && Array.isArray(existingPeers)) {
+        existingPeers.forEach(peer => {
+          this.addParticipant(peer.participantId, peer.name, peer.streamName);
+        });
       }
-
-      existingPeers.forEach(peer => {
-        this.addParticipant(peer.participantId, peer.name);
-        if (peer.streamName) {
-          this.webrtc.consumeRemoteStream(peer.participantId, peer.streamName);
-        }
-      });
       this.updateParticipantCount();
     });
 
     this.signaling.addEventListener('participant-joined', (e) => {
       const { participantId, name, streamName } = e.detail;
       console.log('[Director] Participant joined:', participantId);
-      this.addParticipant(participantId, name);
-      if (streamName) {
-        this.webrtc.consumeRemoteStream(participantId, streamName);
-      }
+      this.addParticipant(participantId, name, streamName);
       this.updateParticipantCount();
       this.showToast(`${name} joined the room`, 'info');
     });
@@ -97,55 +83,74 @@ class DirectorView {
       this.updateParticipantCount();
     });
 
-    this.webrtc.addEventListener('remote-stream', (e) => {
-      const { peerId, stream } = e.detail;
-      console.log('[Director] Received stream from', peerId);
-      this.attachStream(peerId, stream);
-    });
-
     this.signaling.addEventListener('disconnected', () => {
       console.log('[Director] Disconnected, reconnecting...');
       setTimeout(() => this.connect(), 2000);
     });
+
+    this.signaling.addEventListener('error', (e) => {
+      const { message } = e.detail;
+      console.error('[Director] Server error:', message);
+      this.showToast(message || 'Connection error', 'error');
+    });
+
+    this.signaling.connect(wsUrl);
   }
 
-  addParticipant(peerId, name) {
+  getMediaMTXEmbedUrl(streamName) {
+    return `/view/${streamName}`;
+  }
+
+  addParticipant(peerId, name, streamName) {
     const grid = document.getElementById('director-grid');
     if (!grid) return;
 
     const card = document.createElement('div');
     card.className = 'director-card glass-panel animate-fade-in';
     card.id = `director-card-${peerId}`;
+
+    const embedUrl = streamName ? this.getMediaMTXEmbedUrl(streamName) : '';
+    const escapedName = this.escapeHtml(name);
+
+    let videoContent;
+    if (embedUrl) {
+      videoContent = `
+        <iframe
+          src="${embedUrl}?autoplay=true&muted=true&playsinline=true"
+          style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;"
+          allow="autoplay; encrypted-media"
+          allowfullscreen
+          scrolling="no">
+        </iframe>
+      `;
+    } else {
+      videoContent = `
+        <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--color-text-secondary);">
+          <span>No Stream</span>
+        </div>
+      `;
+    }
+
     card.innerHTML = `
-      <video autoplay muted playsinline style="width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 8px; background: var(--color-bg-primary);"></video>
+      <div style="position: relative; width: 100%; aspect-ratio: 16/9; background: var(--color-bg-primary); border-radius: 8px; overflow: hidden;">
+        ${videoContent}
+      </div>
       <div style="padding: 12px 0 0 0;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-          <span style="font-weight: 500;">${this.escapeHtml(name)}</span>
+          <span style="font-weight: 500;">${escapedName}</span>
           <span class="connection-status" style="font-size: 12px; color: var(--color-success);">Connected</span>
         </div>
         <div class="director-card-controls" style="display: flex; flex-wrap: wrap; gap: 8px;">
-          <button class="btn btn-sm btn-secondary" onclick="window.directorView.copyWhepLink('${peerId}')">WHEP Link</button>
-          <button class="btn btn-sm btn-secondary" onclick="window.directorView.copySrtLink('${peerId}')">SRT Link</button>
-          <button class="btn btn-sm btn-secondary" onclick="window.directorView.showStats('${peerId}')">Stats</button>
-          <button class="btn btn-sm btn-danger" onclick="window.directorView.muteParticipant('${peerId}')">Mute</button>
-          <button class="btn btn-sm btn-danger" onclick="window.directorView.kickParticipant('${peerId}')">Kick</button>
+          <button class="btn btn-sm btn-secondary" onclick="window.directorView.copyPlayerLink('${this.escapeHtml(peerId)}')">Player Link</button>
+          <button class="btn btn-sm btn-secondary" onclick="window.directorView.copySrtLink('${this.escapeHtml(peerId)}')">SRT Link</button>
+          <button class="btn btn-sm btn-danger" onclick="window.directorView.muteParticipant('${this.escapeHtml(peerId)}')">Mute</button>
+          <button class="btn btn-sm btn-danger" onclick="window.directorView.kickParticipant('${this.escapeHtml(peerId)}')">Kick</button>
         </div>
       </div>
     `;
 
     grid.appendChild(card);
-    this.participants.set(peerId, { name, card, stream: null });
-  }
-
-  attachStream(peerId, stream) {
-    const participant = this.participants.get(peerId);
-    if (!participant) return;
-
-    const video = participant.card.querySelector('video');
-    if (video) {
-      video.srcObject = stream;
-      participant.stream = stream;
-    }
+    this.participants.set(peerId, { name, card, streamName, connected: true });
   }
 
   removeParticipant(peerId) {
@@ -159,16 +164,26 @@ class DirectorView {
     if (countEl) countEl.textContent = this.participants.size;
   }
 
-  async copyWhepLink(peerId) {
-    const link = `${window.location.origin}/#/view/${this.roomId}/${peerId}`;
-    await this.copyToClipboard(link, 'WHEP Player link copied!');
+  async copyPlayerLink(peerId) {
+    const participant = this.participants.get(peerId);
+    if (!participant?.streamName) {
+      this.showToast('No stream available', 'error');
+      return;
+    }
+    const host = window.location.hostname;
+    const link = `${window.location.origin}/view/${participant.streamName}/`;
+    await this.copyToClipboard(link, 'Player link copied!');
   }
 
   async copySrtLink(peerId) {
-    // Generate SRT URL: srt://{host}:9999?streamid=app/{roomId}_{peerId}
+    const participant = this.participants.get(peerId);
+    if (!participant?.streamName) {
+      this.showToast('No stream available', 'error');
+      return;
+    }
     const host = window.location.hostname;
-    const streamId = `app/${this.roomId}_${peerId}`;
-    const link = `srt://${host}:9999?streamid=${streamId}`;
+    const streamId = `read:${participant.streamName}`;
+    const link = `srt://${host}:8890?streamid=${streamId}`;
     await this.copyToClipboard(link, 'SRT link copied!');
   }
 
@@ -178,32 +193,6 @@ class DirectorView {
       this.showToast(successMsg, 'success');
     } catch (error) {
       this.showToast('Failed to copy', 'error');
-    }
-  }
-
-  async copySoloLink(peerId) {
-    return this.copyWhepLink(peerId);
-  }
-
-  async showStats(peerId) {
-    const participant = this.participants.get(peerId);
-    if (!participant) return;
-
-    try {
-      const stats = await this.webrtc.getStats(peerId);
-      let statsText = `Stats for ${participant.name}:\n\n`;
-
-      stats.forEach(report => {
-        if (report.type === 'inbound-rtp' && report.kind === 'video') {
-          statsText += `Resolution: ${report.frameWidth}x${report.frameHeight}\n`;
-          statsText += `FPS: ${report.framesPerSecond}\n`;
-          statsText += `Packets Lost: ${report.packetsLost}\n`;
-        }
-      });
-
-      alert(statsText);
-    } catch (error) {
-      this.showToast('Failed to get stats', 'error');
     }
   }
 
@@ -221,21 +210,11 @@ class DirectorView {
 
   startStatsPolling() {
     this.statsInterval = setInterval(() => {
-      this.participants.forEach((participant, peerId) => {
+      this.participants.forEach((participant) => {
         const statusEl = participant.card.querySelector('.connection-status');
-        const state = this.webrtc.getConnectionState(peerId);
-
         if (statusEl) {
-          if (state === 'connected') {
-            statusEl.textContent = 'Connected';
-            statusEl.style.color = 'var(--color-success)';
-          } else if (state === 'disconnected' || state === 'failed') {
-            statusEl.textContent = 'Disconnected';
-            statusEl.style.color = 'var(--color-error)';
-          } else {
-            statusEl.textContent = 'Connecting...';
-            statusEl.style.color = 'var(--color-warning)';
-          }
+          statusEl.textContent = 'Connected';
+          statusEl.style.color = 'var(--color-success)';
         }
       });
     }, 2000);
@@ -244,6 +223,23 @@ class DirectorView {
   showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
     if (!container) return;
+
+    const now = Date.now();
+    const key = `${message}-${type}`;
+    if (this.recentToasts && this.recentToasts.has(key)) {
+      const lastShown = this.recentToasts.get(key);
+      if (now - lastShown < 5000) return;
+    }
+
+    if (!this.recentToasts) this.recentToasts = new Map();
+    this.recentToasts.set(key, now);
+
+    if (this.recentToasts.size > 50) {
+      const cutoff = now - 30000;
+      for (const [k, v] of this.recentToasts.entries()) {
+        if (v < cutoff) this.recentToasts.delete(k);
+      }
+    }
 
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
@@ -264,7 +260,6 @@ class DirectorView {
       clearInterval(this.statsInterval);
       this.statsInterval = null;
     }
-    if (this.webrtc) this.webrtc.cleanup();
     if (this.signaling) this.signaling.disconnect();
   }
 }
@@ -272,6 +267,18 @@ class DirectorView {
 if (window.location.hash.startsWith('#/director/')) {
   window.directorView = new DirectorView();
   window.addEventListener('beforeunload', () => window.directorView.cleanup());
+
+  window.addEventListener('hashchange', () => {
+    const newHash = window.location.hash;
+    if (newHash.startsWith('#/director/')) {
+      const newRoomId = newHash.split('/')[2]?.toUpperCase();
+      if (newRoomId && newRoomId !== window.directorView.roomId) {
+        console.log('[Director] Room changed from', window.directorView.roomId, 'to', newRoomId);
+        window.directorView.cleanup();
+        window.directorView = new DirectorView();
+      }
+    }
+  });
 }
 
 window.DirectorView = DirectorView;

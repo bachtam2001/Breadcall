@@ -336,6 +336,26 @@ class UIManager {
     const container = document.getElementById('toast-container');
     if (!container) return;
 
+    // Prevent duplicate toasts with same message within 5 seconds
+    const now = Date.now();
+    const key = `${message}-${type}`;
+    if (!this.recentToasts) {
+      this.recentToasts = new Map();
+    }
+    if (this.recentToasts.has(key)) {
+      const lastShown = this.recentToasts.get(key);
+      if (now - lastShown < 5000) return; // Skip if shown in last 5s
+    }
+    this.recentToasts.set(key, now);
+
+    // Clean up old entries periodically (keep last 50)
+    if (this.recentToasts.size > 50) {
+      const cutoff = now - 30000;
+      for (const [k, v] of this.recentToasts.entries()) {
+        if (v < cutoff) this.recentToasts.delete(k);
+      }
+    }
+
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
     toast.textContent = message;
@@ -344,6 +364,102 @@ class UIManager {
     setTimeout(() => {
       toast.remove();
     }, 4000);
+  }
+
+  /**
+   * Show media device not found dialog with retry options
+   */
+  showMediaNotFoundDialog(onRetry, onContinueWithoutMedia, onEnableTestMode) {
+    // Create modal overlay
+    let modalOverlay = document.getElementById('media-not-found-modal');
+    if (modalOverlay) {
+      modalOverlay.remove();
+    }
+
+    modalOverlay = document.createElement('div');
+    modalOverlay.id = 'media-not-found-modal';
+    modalOverlay.className = 'modal-overlay active';
+    modalOverlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 9999;';
+
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.cssText = 'background: var(--color-bg-primary); border-radius: 12px; padding: 24px; max-width: 500px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.3);';
+
+    const header = document.createElement('div');
+    header.style.cssText = 'margin-bottom: 16px;';
+    const title = document.createElement('h3');
+    title.style.cssText = 'margin: 0; color: var(--color-text-primary);';
+    title.textContent = 'No Media Devices Found';
+    header.appendChild(title);
+
+    const body = document.createElement('div');
+    body.style.cssText = 'margin-bottom: 24px;';
+
+    const infoPara = document.createElement('p');
+    infoPara.style.cssText = 'margin-bottom: 16px; color: var(--color-text-secondary);';
+    infoPara.textContent = 'No camera or microphone was detected. You can:';
+    body.appendChild(infoPara);
+
+    const list = document.createElement('ul');
+    list.style.cssText = 'margin: 16px 0; padding-left: 20px; color: var(--color-text-secondary);';
+
+    const retryItem = document.createElement('li');
+    retryItem.textContent = 'Retry device detection';
+    const viewOnlyItem = document.createElement('li');
+    viewOnlyItem.textContent = 'Continue in view-only mode';
+    const testModeItem = document.createElement('li');
+    testModeItem.textContent = 'Enable test mode (uses simulated video)';
+
+    list.appendChild(retryItem);
+    list.appendChild(viewOnlyItem);
+    list.appendChild(testModeItem);
+    body.appendChild(list);
+
+    const tipPara = document.createElement('p');
+    tipPara.style.cssText = 'font-size: 12px; color: var(--color-text-tertiary); margin-top: 16px;';
+    tipPara.innerHTML = 'Tip: You can also add <code style="background: var(--color-bg-secondary); padding: 2px 6px; border-radius: 4px;">?testMode=true</code> to the URL.';
+    body.appendChild(tipPara);
+
+    const footer = document.createElement('div');
+    footer.style.cssText = 'display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;';
+
+    const retryBtn = document.createElement('button');
+    retryBtn.className = 'btn btn-secondary';
+    retryBtn.textContent = 'Retry';
+
+    const noMediaBtn = document.createElement('button');
+    noMediaBtn.className = 'btn btn-secondary';
+    noMediaBtn.textContent = 'Continue Without Media';
+
+    const testModeBtn = document.createElement('button');
+    testModeBtn.className = 'btn btn-primary';
+    testModeBtn.textContent = 'Enable Test Mode';
+
+    footer.appendChild(retryBtn);
+    footer.appendChild(noMediaBtn);
+    footer.appendChild(testModeBtn);
+
+    modal.appendChild(header);
+    modal.appendChild(body);
+    modal.appendChild(footer);
+    modalOverlay.appendChild(modal);
+    document.body.appendChild(modalOverlay);
+
+    // Bind events
+    retryBtn.addEventListener('click', () => {
+      modalOverlay.remove();
+      onRetry();
+    });
+
+    noMediaBtn.addEventListener('click', () => {
+      modalOverlay.remove();
+      onContinueWithoutMedia();
+    });
+
+    testModeBtn.addEventListener('click', () => {
+      modalOverlay.remove();
+      onEnableTestMode();
+    });
   }
 
   /**

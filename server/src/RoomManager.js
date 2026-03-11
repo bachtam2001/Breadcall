@@ -1,8 +1,10 @@
 const { v4: uuidv4 } = require('uuid');
+const WebSocket = require('ws');
 
 class RoomManager {
   constructor() {
     this.rooms = new Map();
+    this.directors = new Map(); // roomId -> Set of director WebSockets
     this.roomTTL = 5 * 60 * 1000; // 5 minutes TTL for empty rooms
   }
 
@@ -125,6 +127,62 @@ class RoomManager {
   }
 
   /**
+   * Join a room as a director (observer)
+   * Directors don't count towards participant limit and don't have streamNames
+   * @param {string} roomId - Room ID
+   * @param {Object} director - Director info
+   * @returns {Object} Join result with existing participants
+   */
+  joinRoomAsDirector(roomId, director) {
+    const room = this.rooms.get(roomId);
+
+    if (!room) {
+      throw new Error('Room not found');
+    }
+
+    // Generate director ID (different namespace from participants)
+    const directorId = `director_${uuidv4()}`;
+
+    // Initialize directors set for this room if needed
+    if (!this.directors.has(roomId)) {
+      this.directors.set(roomId, new Map());
+    }
+    const roomDirectors = this.directors.get(roomId);
+
+    const directorData = {
+      directorId,
+      roomId,
+      name: director.name || 'Director',
+      joinedAt: new Date().toISOString(),
+      ws: director.ws
+    };
+
+    roomDirectors.set(directorId, directorData);
+
+    // Get existing participants (excluding other directors)
+    const existingParticipants = Array.from(room.participants.values()).map(p => ({
+      participantId: p.participantId,
+      streamName: p.streamName,
+      name: p.name,
+      isSendingVideo: p.isSendingVideo,
+      isSendingAudio: p.isSendingAudio
+    }));
+
+    console.log(`[RoomManager] Director joined: ${directorId} -> ${roomId}`);
+
+    return {
+      directorId,
+      room: {
+        id: room.id,
+        maxParticipants: room.maxParticipants,
+        quality: room.quality,
+        codec: room.codec
+      },
+      existingParticipants
+    };
+  }
+
+  /**
    * Leave a room
    * @param {string} roomId - Room ID
    * @param {string} participantId - Participant ID
@@ -142,12 +200,39 @@ class RoomManager {
     if (removed) {
       console.log(`[RoomManager] Participant left: ${participantId} <- ${roomId}`);
 
-      // Start TTL timer if room is now empty
+      // Start TTL timer if room is now empty (participants only, directors don't count)
       if (room.participants.size === 0 && !room.emptySince) {
         room.emptySince = new Date().toISOString();
         room.ttlTimer = setTimeout(() => {
           this.deleteRoom(roomId);
         }, this.roomTTL);
+      }
+    }
+
+    return removed;
+  }
+
+  /**
+   * Leave a room as director
+   * @param {string} roomId - Room ID
+   * @param {string} directorId - Director ID
+   * @returns {boolean} Success
+   */
+  leaveRoomAsDirector(roomId, directorId) {
+    const roomDirectors = this.directors.get(roomId);
+
+    if (!roomDirectors) {
+      return false;
+    }
+
+    const removed = roomDirectors.delete(directorId);
+
+    if (removed) {
+      console.log(`[RoomManager] Director left: ${directorId} <- ${roomId}`);
+
+      // Clean up if no more directors
+      if (roomDirectors.size === 0) {
+        this.directors.delete(roomId);
       }
     }
 
@@ -180,6 +265,21 @@ class RoomManager {
         }));
         participant.ws.close();
       }
+    }
+
+    // Notify all directors
+    const roomDirectors = this.directors.get(roomId);
+    if (roomDirectors) {
+      for (const [directorId, director] of roomDirectors.entries()) {
+        if (director.ws && director.ws.readyState === WebSocket.OPEN) {
+          director.ws.send(JSON.stringify({
+            type: 'room-closed',
+            roomId
+          }));
+          director.ws.close();
+        }
+      }
+      this.directors.delete(roomId);
     }
 
     this.rooms.delete(roomId);
@@ -217,6 +317,44 @@ class RoomManager {
       isMuted: p.isMuted,
       isVideoOff: p.isVideoOff
     }));
+  }
+
+  /**
+   * Get room directors
+   * @param {string} roomId - Room ID
+   * @returns {Array} List of directors
+   */
+  getRoomDirectors(roomId) {
+    const roomDirectors = this.directors.get(roomId);
+    if (!roomDirectors) {
+      return [];
+    }
+
+    return Array.from(roomDirectors.values()).map(d => ({
+      directorId: d.directorId,
+      name: d.name,
+      joinedAt: d.joinedAt
+    }));
+  }
+
+  /**
+   * Notify all directors in a room about participant events
+   * @param {string} roomId - Room ID
+   * @param {Object} message - Message to send
+   * @param {WebSocket} excludeWs - WebSocket to exclude
+   */
+  notifyDirectors(roomId, message, excludeWs = null) {
+    const roomDirectors = this.directors.get(roomId);
+    if (!roomDirectors) {
+      return;
+    }
+
+    const messageStr = JSON.stringify(message);
+    for (const [directorId, director] of roomDirectors.entries()) {
+      if (director.ws && director.ws.readyState === WebSocket.OPEN && director.ws !== excludeWs) {
+        director.ws.send(messageStr);
+      }
+    }
   }
 
   /**

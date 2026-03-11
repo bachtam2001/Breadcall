@@ -21,8 +21,8 @@ class Recorder extends EventEmitter {
    */
   getSupportedMimeType() {
     const types = [
-      'video/webm;codecs=vp9,opus',
-      'video/webm;codecs=vp8,opus',
+      'video/webm;codecs=h265,opus',
+      'video/mp4;codecs=h264,aac',
       'video/webm;codecs=h264,opus',
       'video/webm'
     ];

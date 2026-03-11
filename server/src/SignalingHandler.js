@@ -77,8 +77,16 @@ class SignalingHandler {
         this.handlePing(ws);
         break;
 
+      case 'pong':
+        // Client responding to server ping, handled in heartbeat
+        break;
+
       case 'join-room':
         this.handleJoinRoom(ws, payload);
+        break;
+
+      case 'join-room-director':
+        this.handleJoinRoomDirector(ws, payload);
         break;
 
       case 'leave-room':
@@ -123,13 +131,26 @@ class SignalingHandler {
 
     if (connection) {
       console.log(`[Signaling] WebSocket disconnected: ${connection.participantId}`);
-      this.roomManager.leaveRoom(connection.roomId, connection.participantId);
 
-      // Notify room participants
-      this.broadcastToRoom(connection.roomId, {
-        type: 'participant-left',
-        participantId: connection.participantId
-      }, ws);
+      if (connection.isDirector) {
+        // Director leaving
+        this.roomManager.leaveRoomAsDirector(connection.roomId, connection.participantId);
+      } else {
+        // Participant leaving
+        this.roomManager.leaveRoom(connection.roomId, connection.participantId);
+
+        // Notify room participants
+        this.broadcastToRoom(connection.roomId, {
+          type: 'participant-left',
+          participantId: connection.participantId
+        }, ws);
+
+        // Notify directors about participant leaving
+        this.roomManager.notifyDirectors(connection.roomId, {
+          type: 'participant-left',
+          participantId: connection.participantId
+        });
+      }
     }
 
     this.cleanupConnection(ws);
@@ -156,6 +177,52 @@ class SignalingHandler {
     }
 
     this.send(ws, { type: 'pong' });
+  }
+
+  /**
+   * Handle join-room-director message (director/observer mode)
+   * @param {WebSocket} ws
+   * @param {Object} payload
+   */
+  handleJoinRoomDirector(ws, payload) {
+    const { roomId, name } = payload || {};
+
+    if (!roomId) {
+      this.sendError(ws, 'Room ID is required');
+      return;
+    }
+
+    // Validate room ID format
+    if (!isValidRoomId(roomId)) {
+      this.sendError(ws, 'Invalid room ID format');
+      return;
+    }
+
+    try {
+      const result = this.roomManager.joinRoomAsDirector(roomId, {
+        name: name ? sanitizeInput(name.substring(0, 50)) : 'Director',
+        ws
+      });
+
+      // Store connection mapping with director flag
+      this.wsMap.set(ws, {
+        participantId: result.directorId,
+        roomId: result.roomId,
+        isDirector: true
+      });
+
+      // Send success response
+      this.send(ws, {
+        type: 'joined-room',
+        directorId: result.directorId,
+        room: result.room,
+        existingPeers: result.existingParticipants // Use same field name for consistency
+      });
+
+      console.log(`[Signaling] Director ${result.directorId} joined room ${roomId}`);
+    } catch (error) {
+      this.sendError(ws, error.message);
+    }
   }
 
   /**
@@ -198,13 +265,21 @@ class SignalingHandler {
         existingPeers: result.existingPeers
       });
 
-      // Notify existing participants about new peer
+      // Notify existing participants about new peer (excluding directors)
       this.broadcastToRoom(roomId, {
         type: 'participant-joined',
         participantId: result.participantId,
         streamName: result.participantId ? `${roomId}_${result.participantId}` : undefined,
         name: name ? sanitizeInput(name.substring(0, 50)) : 'Anonymous'
       }, ws);
+
+      // Notify directors about new participant
+      this.roomManager.notifyDirectors(roomId, {
+        type: 'participant-joined',
+        participantId: result.participantId,
+        streamName: `${roomId}_${result.participantId}`,
+        name: name ? sanitizeInput(name.substring(0, 50)) : 'Anonymous'
+      });
 
       console.log(`[Signaling] Participant ${result.participantId} joined room ${roomId}`);
     } catch (error) {

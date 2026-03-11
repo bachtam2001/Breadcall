@@ -10,18 +10,19 @@
 
     <Bind>
         <Providers>
-            <WebRTC>
-                <Signalling>
-                    <Port>3333</Port>
-                    <WorkerCount>1</WorkerCount>
-                </Signalling>
-                <IceCandidates>
-                    <TcpRelay>${OME_HOST_IP}:3478</TcpRelay>
-                    <TcpForce>true</TcpForce>
-                    <TcpRelayWorkerCount>1</TcpRelayWorkerCount>
-                    <IceCandidate>*:10000-10010/udp</IceCandidate>
-                </IceCandidates>
-            </WebRTC>
+			<WebRTC>
+				<Signalling>
+					<Port>3333</Port>
+					<TLSPort>3334</TLSPort>
+					<WorkerCount>1</WorkerCount>
+				</Signalling>
+				<IceCandidates>
+					<IceCandidate>*:10000-10005/udp</IceCandidate>
+					<TcpRelay>*:3478</TcpRelay>
+					<TcpForce>true</TcpForce>
+					<TcpRelayWorkerCount>1</TcpRelayWorkerCount>
+				</IceCandidates>
+			</WebRTC>
             <RTMP>
                 <Port>1935</Port>
                 <WorkerCount>1</WorkerCount>
@@ -33,18 +34,19 @@
         </Providers>
 
         <Publishers>
-            <WebRTC>
-                <Signalling>
-                    <Port>3333</Port>
-                    <WorkerCount>1</WorkerCount>
-                </Signalling>
-                <IceCandidates>
-                    <TcpRelay>${OME_HOST_IP}:3478</TcpRelay>
-                    <TcpForce>true</TcpForce>
-                    <TcpRelayWorkerCount>1</TcpRelayWorkerCount>
-                    <IceCandidate>*:10000-10010/udp</IceCandidate>
-                </IceCandidates>
-            </WebRTC>
+			<WebRTC>
+				<Signalling>
+					<Port>3333</Port>
+					<TLSPort>3334</TLSPort>
+					<WorkerCount>1</WorkerCount>
+				</Signalling>
+				<IceCandidates>
+					<IceCandidate>*:10000-10005/udp</IceCandidate>
+					<TcpRelay>*:3478</TcpRelay>
+					<TcpForce>true</TcpForce>
+					<TcpRelayWorkerCount>1</TcpRelayWorkerCount>
+				</IceCandidates>
+			</WebRTC>
             <SRT>
                 <Port>9999</Port>
                 <WorkerCount>1</WorkerCount>
@@ -78,6 +80,9 @@
                     <Name>*</Name>
                 </Names>
             </Host>
+            <CrossDomains>
+                <Url>*</Url>
+            </CrossDomains>
             <Applications>
                 <Application>
                     <Name>app</Name>
@@ -118,6 +123,11 @@
                             <Timeout>30000</Timeout>
                         </WebRTC>
                         <SRT />
+                        <LLHLS>
+                            <ChunkDuration>0.5</ChunkDuration>
+                            <SegmentDuration>6</SegmentDuration>
+                            <SegmentCount>10</SegmentCount>
+                        </LLHLS>
                     </Publishers>
                 </Application>
             </Applications>

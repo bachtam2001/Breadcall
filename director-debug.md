@@ -1,0 +1,20 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - heading "Director Dashboard" [level=1] [ref=e5]
+      - paragraph [ref=e6]:
+        - text: "Room:"
+        - strong [ref=e7]: DLTR
+    - generic [ref=e9]:
+      - generic [ref=e10]: "1"
+      - generic [ref=e11]: Participants
+  - generic [ref=e15]:
+    - generic [ref=e16]:
+      - generic [ref=e17]: User
+      - generic [ref=e18]: Connecting...
+    - generic [ref=e19]:
+      - button "WHEP Link" [ref=e20] [cursor=pointer]
+      - button "SRT Link" [ref=e21] [cursor=pointer]
+      - button "Stats" [ref=e22] [cursor=pointer]
+      - button "Mute" [ref=e23] [cursor=pointer]
+      - button "Kick" [ref=e24] [cursor=pointer]
