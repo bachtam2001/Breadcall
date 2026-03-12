@@ -2,6 +2,31 @@
  * SoloView - Full-screen single stream view for OBS Browser Source
  * Uses MediaMTX embedded WebRTC player via /view/{streamId} proxy
  */
+
+/**
+ * Detect if browser supports H265/HEVC codec
+ * @returns {Promise<boolean>} True if H265 is supported
+ */
+async function detectH265Support() {
+  // Check if RTCPeerConnection exists
+  if (typeof RTCPeerConnection === 'undefined') return false;
+
+  try {
+    const pc = new RTCPeerConnection();
+    // Try to create an offer with H265
+    const offer = await pc.createOffer({ offerToReceiveVideo: true });
+    pc.close();
+    // Check if H265 is in the SDP offer
+    return offer.sdp && (
+      offer.sdp.toLowerCase().includes('h265') ||
+      offer.sdp.toLowerCase().includes('hevc')
+    );
+  } catch (e) {
+    // If creating offer fails, assume no H265 support
+    return false;
+  }
+}
+
 class SoloView {
   constructor() {
     this.roomId = null;
@@ -125,17 +150,22 @@ class SoloView {
     this.signaling.connect(wsUrl);
   }
 
-  startWHEP(streamName) {
+  async startWHEP(streamName) {
     const loading = document.getElementById('loading');
     if (!this.video) return;
 
     console.log('[SoloView] Starting WHEP for stream:', streamName);
 
+    // Detect codec support and fallback to H264 if H265 not supported
+    const h265Supported = await detectH265Support();
+    const videoCodec = h265Supported ? 'H265' : 'H264';
+    console.log('[SoloView] Using video codec:', videoCodec, h265Supported ? '(H265 supported)' : '(H265 not supported, fallback to H264)');
+
     this.whepClient = new WHEPClient(
       `/view/${streamName}`,
       this.video,
       {
-        videoCodec: 'H265',
+        videoCodec,
         audioCodec: 'opus',
         onTrack: () => {
           console.log('[SoloView] Remote track received');
@@ -144,7 +174,7 @@ class SoloView {
       }
     );
 
-    this.whepClient.consume();
+    await this.whepClient.consume();
   }
 
   showLoading(message) {

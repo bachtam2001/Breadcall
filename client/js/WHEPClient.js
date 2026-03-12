@@ -5,7 +5,7 @@
  */
 class WHEPClient {
   constructor(endpoint, videoElement, options = {}) {
-    this.retryPause = 2000;
+    this.retryPause = options.retryPause || 2000;
     this.endpoint = endpoint;
     this.videoElement = videoElement;
     this.pc = null;
@@ -295,8 +295,8 @@ class WHEPClient {
    * Uses HTTP POST with SDP offer (standard WHEP pattern)
    * Based on MediaMTX WebRTC reader
    */
-  async consume() {
-    this.#requestICEServers()
+  consume() {
+    return this.#requestICEServers()
       .then((iceServers) => this.#setupPeerConnection(iceServers))
       .then((offer) => this.#sendOffer(offer))
       .then((answer) => this.#setAnswer(answer))

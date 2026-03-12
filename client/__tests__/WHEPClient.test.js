@@ -10,8 +10,8 @@ global.RTCSessionDescription = jest.fn().mockImplementation((desc) => desc);
 global.RTCPeerConnection = jest.fn().mockImplementation(() => ({
   addTransceiver: jest.fn(),
   createOffer: jest.fn().mockResolvedValue({ sdp: 'v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n' }),
-  setLocalDescription: jest.fn(),
-  setRemoteDescription: jest.fn(),
+  setLocalDescription: jest.fn().mockResolvedValue(undefined),
+  setRemoteDescription: jest.fn().mockResolvedValue(undefined),
   close: jest.fn(),
   iceGatheringState: 'complete',
   addEventListener: jest.fn(),
@@ -22,11 +22,8 @@ global.RTCPeerConnection = jest.fn().mockImplementation(() => ({
   localDescription: { sdp: 'v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n' }
 }));
 
-// Mock window.setTimeout for retry logic
-global.setTimeout = jest.fn().mockImplementation((fn) => {
-  if (typeof fn === 'function') fn();
-  return 123;
-});
+// Mock window.setTimeout for retry logic - don't invoke immediately to avoid infinite loops
+global.setTimeout = jest.fn().mockImplementation(() => 123);
 global.clearTimeout = jest.fn();
 
 // Mock window object for browser globals
@@ -38,8 +35,12 @@ describe('WHEPClient', () => {
     jest.clearAllMocks();
     jest.resetModules();
 
-    // Setup fetch mock fresh for each test
-    global.fetch = jest.fn();
+    // Setup fetch mock fresh for each test - must return Promise for .then() chaining
+    global.fetch = jest.fn(() => Promise.resolve({
+      ok: true,
+      status: 204,
+      headers: { get: jest.fn().mockReturnValue(null) }
+    }));
 
     global.window = { WHEPClient: null };
 

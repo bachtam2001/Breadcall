@@ -260,6 +260,9 @@ class DirectorView {
       clearInterval(this.statsInterval);
       this.statsInterval = null;
     }
+    if (this.recentToasts) {
+      this.recentToasts.clear();
+    }
     if (this.signaling) this.signaling.disconnect();
   }
 }

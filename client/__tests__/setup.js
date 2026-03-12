@@ -16,6 +16,17 @@ if (typeof global.CustomEvent === 'undefined') {
   };
 }
 
+// Mock setImmediate for jsdom (Node.js only)
+if (typeof global.setImmediate === 'undefined') {
+  // Use process.nextTick for microtask scheduling
+  global.setImmediate = (fn, ...args) => {
+    if (typeof process !== 'undefined' && process.nextTick) {
+      return process.nextTick(() => fn(...args));
+    }
+    return setTimeout(() => fn(...args), 0);
+  };
+}
+
 // Mock console to keep test output clean (optional - comment out to see logs)
 global.console = {
   ...console,
