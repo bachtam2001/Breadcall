@@ -531,6 +531,18 @@ class SignalingHandler {
   }
 
   /**
+   * Broadcast room settings update to all participants in a room
+   * @param {string} roomId
+   * @param {Object} settings - Settings to broadcast
+   */
+  broadcastRoomSettings(roomId, settings) {
+    this.broadcastToRoom(roomId, {
+      type: 'room-settings',
+      settings
+    });
+  }
+
+  /**
    * Find WebSocket for a peer in a room
    * @param {string} roomId
    * @param {string} peerId

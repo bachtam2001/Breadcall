@@ -69,20 +69,17 @@ class UIManager {
    * Bind landing page events
    */
   bindLandingEvents() {
-    const createForm = document.getElementById('create-room-form');
-    createForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const name = document.getElementById('room-name').value;
-      const password = document.getElementById('room-password').value;
-      this.app.createRoom({ name, password });
-    });
-
     const joinForm = document.getElementById('join-room-form');
     joinForm.addEventListener('submit', (e) => {
       e.preventDefault();
+      const name = document.getElementById('join-name').value;
       const roomId = document.getElementById('join-room-id').value.toUpperCase();
+      const password = document.getElementById('join-password').value;
+
       if (roomId.length === 4) {
-        this.app.joinRoom(roomId);
+        this.app.joinRoom(roomId, name, password);
+      } else {
+        this.showToast('Please enter a valid 4-character room ID', 'error');
       }
     });
 

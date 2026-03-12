@@ -232,24 +232,12 @@ class BreadCallApp {
   }
 
   async createRoom(options = {}) {
-    try {
-      const response = await fetch('/api/rooms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(options)
-      });
-      const data = await response.json();
-      if (data.success) {
-        window.location.hash = `#/room/${data.roomId}`;
-      } else {
-        this.uiManager.showToast('Failed to create room: ' + data.error, 'error');
-      }
-    } catch (error) {
-      this.uiManager.showToast('Failed to create room', 'error');
-    }
+    // Room creation is now restricted to admin panel
+    this.uiManager.showToast('Room creation is restricted to admin users. Please use the Admin Panel.', 'error');
+    console.warn('[BreadCallApp] Room creation attempted from public page - rejected');
   }
 
-  async joinRoom(roomId) {
+  async joinRoom(roomId, name = 'User', password = '') {
     // Prevent multiple concurrent join attempts
     if (this.isJoining) {
       console.log('[BreadCallApp] Already joining, ignoring duplicate request');
@@ -263,20 +251,20 @@ class BreadCallApp {
       this.joinTimeoutId = null;
     }
 
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsProtocol = window.location.protocol === 'wss:' ? 'wss:' : 'ws:';
     const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
 
     // Connect to signaling server first
     if (!this.signaling.isConnected()) {
       // Wait for connection before sending join-room to prevent race condition
       const onConnected = () => {
-        this.signaling.send('join-room', { roomId, name: 'User' });
+        this.signaling.send('join-room', { roomId, name, password });
       };
 
       this.signaling.addEventListener('connected', onConnected, { once: true });
       this.signaling.connect(wsUrl);
     } else {
-      this.signaling.send('join-room', { roomId, name: 'User' });
+      this.signaling.send('join-room', { roomId, name, password });
     }
 
     // Try to get media, but don't block joining if it fails

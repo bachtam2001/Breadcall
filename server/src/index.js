@@ -7,13 +7,20 @@ require('dotenv').config();
 
 const RoomManager = require('./RoomManager');
 const SignalingHandler = require('./SignalingHandler');
+const AuthMiddleware = require('./AuthMiddleware');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Initialize auth middleware
+const authMiddleware = new AuthMiddleware();
+
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Session middleware (must be before routes that use it)
+app.use(authMiddleware.getSessionMiddleware());
 
 // Serve static files in development
 app.use(express.static(path.join(__dirname, '../../client')));
@@ -35,24 +42,12 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Create room
-app.post('/api/rooms', async (req, res) => {
-  try {
-    const { password, maxParticipants = 10, quality = 'hd', codec = 'H264' } = req.body;
-    const room = roomManager.createRoom({
-      password,
-      maxParticipants,
-      quality,
-      codec
-    });
-    res.json({
-      success: true,
-      roomId: room.id,
-      createdAt: room.createdAt
-    });
-  } catch (error) {
-    res.status(400).json({ success: false, error: error.message });
-  }
+// Create room - RESTRICTED TO ADMIN ONLY (use /api/admin/rooms)
+app.post('/api/rooms', (req, res) => {
+  res.status(403).json({
+    success: false,
+    error: 'Room creation is restricted to admin users. Please use /api/admin/rooms with valid admin session.'
+  });
 });
 
 // Get room info
@@ -105,6 +100,130 @@ app.get('/api/webrtc-config', (req, res) => {
     webrtcUrl: webrtcUrl,
     app: '',
     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+  });
+});
+
+// =============================================================================
+// Admin API Routes
+// =============================================================================
+
+// Admin login
+app.post('/api/admin/login', (req, res) => {
+  authMiddleware.login(req, res);
+});
+
+// Admin logout
+app.post('/api/admin/logout', (req, res) => {
+  authMiddleware.logout(req, res);
+});
+
+// Get current admin status
+app.get('/api/admin/me', (req, res) => {
+  authMiddleware.getCurrentUser(req, res);
+});
+
+// List all rooms (admin only)
+app.get('/api/admin/rooms', authMiddleware.isAuthenticated.bind(authMiddleware), (req, res) => {
+  const rooms = roomManager.getAllRooms();
+  res.json({ success: true, rooms });
+});
+
+// Get room participants (admin only)
+app.get('/api/admin/rooms/:roomId/participants', authMiddleware.isAuthenticated.bind(authMiddleware), (req, res) => {
+  const room = roomManager.getRoom(req.params.roomId);
+  if (!room) {
+    return res.status(404).json({ success: false, error: 'Room not found' });
+  }
+
+  const participants = Array.from(room.participants.values()).map(p => ({
+    participantId: p.participantId,
+    name: p.name,
+    joinedAt: p.joinedAt,
+    isSendingVideo: p.isSendingVideo,
+    isSendingAudio: p.isSendingAudio,
+    isMuted: p.isMuted,
+    isVideoOff: p.isVideoOff
+  }));
+
+  const directors = roomManager.getRoomDirectors(req.params.roomId);
+
+  res.json({ success: true, participants, directors });
+});
+
+// Create room (admin only)
+app.post('/api/admin/rooms', authMiddleware.isAuthenticated.bind(authMiddleware), (req, res) => {
+  try {
+    const { password, maxParticipants = 10, quality = 'hd', codec = 'H264' } = req.body;
+    const room = roomManager.createRoom({
+      password,
+      maxParticipants,
+      quality,
+      codec
+    });
+    res.json({
+      success: true,
+      roomId: room.id,
+      room: {
+        id: room.id,
+        maxParticipants: room.maxParticipants,
+        quality: room.quality,
+        codec: room.codec,
+        createdAt: room.createdAt
+      },
+      createdAt: room.createdAt
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// Delete room (admin only)
+app.delete('/api/admin/rooms/:roomId', authMiddleware.isAuthenticated.bind(authMiddleware), (req, res) => {
+  const deleted = roomManager.deleteRoom(req.params.roomId);
+  if (!deleted) {
+    return res.status(404).json({ success: false, error: 'Room not found' });
+  }
+  res.json({ success: true });
+});
+
+// Update room settings (admin only)
+app.put('/api/admin/rooms/:roomId/settings', authMiddleware.isAuthenticated.bind(authMiddleware), (req, res) => {
+  const room = roomManager.getRoom(req.params.roomId);
+  if (!room) {
+    return res.status(404).json({ success: false, error: 'Room not found' });
+  }
+
+  const { quality, codec, maxParticipants } = req.body;
+  const updates = {};
+
+  if (quality && ['sd', 'hd', 'fhd'].includes(quality)) {
+    updates.quality = quality;
+  }
+  if (codec && ['H264', 'VP8', 'VP9'].includes(codec)) {
+    updates.codec = codec;
+  }
+  if (maxParticipants && typeof maxParticipants === 'number' && maxParticipants > 0) {
+    updates.maxParticipants = maxParticipants;
+  }
+
+  // Update room settings
+  Object.assign(room, updates);
+
+  // Notify all participants in the room about settings change
+  signalingHandler.broadcastRoomSettings(req.params.roomId, {
+    quality: room.quality,
+    codec: room.codec,
+    maxParticipants: room.maxParticipants
+  });
+
+  res.json({
+    success: true,
+    room: {
+      id: room.id,
+      quality: room.quality,
+      codec: room.codec,
+      maxParticipants: room.maxParticipants
+    }
   });
 });
 
