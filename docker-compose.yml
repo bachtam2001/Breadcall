@@ -24,6 +24,7 @@ services:
       - breadcall-network
     restart: unless-stopped
     depends_on:
+      - mediamtx
       - signaling
 
   # MediaMTX SFU (WHIP/WHEP WebRTC)
@@ -45,10 +46,11 @@ services:
       - breadcall-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8887"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD-SHELL", "nc -z localhost 8887 || exit 1"]
+      interval: 5s
+      timeout: 3s
       retries: 3
+      start_period: 10s
 
 volumes:
   breadcall-public:
