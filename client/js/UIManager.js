@@ -38,7 +38,7 @@ class UIManager {
                      style="text-transform: uppercase; letter-spacing: 4px; text-align: center;">
             </div>
             <div class="form-group">
-              <label for="join-password">Password (if required)</label>
+              <label for="join-password">Password (optional)</label>
               <input type="password" id="join-password" placeholder="Room password">
             </div>
             <div class="form-actions">

@@ -260,21 +260,21 @@ class AdminDashboard {
               '</div>' +
               '<div class="form-group">' +
                 '<label for="new-room-max">Max Participants</label>' +
-                '<input type="number" id="new-room-max" value="10" min="2" max="50">' +
+                '<input type="number" id="new-room-max" value="10" min="2" max="50" placeholder="Maximum participants">' +
               '</div>' +
               '<div class="form-group">' +
                 '<label for="new-room-quality">Video Quality</label>' +
                 '<select id="new-room-quality">' +
-                  '<option value="sd">SD (480p)</option>' +
-                  '<option value="hd" selected>HD (720p)</option>' +
-                  '<option value="fhd">Full HD (1080p)</option>' +
+                  '<option value="720p">720p (HD)</option>' +
+                  '<option value="1080p">1080p (Full HD)</option>' +
+                  '<option value="original" selected>Original</option>' +
                 '</select>' +
               '</div>' +
               '<div class="form-group">' +
                 '<label for="new-room-codec">Video Codec</label>' +
                 '<select id="new-room-codec">' +
-                  '<option value="H264" selected>H.264 (Most compatible)</option>' +
-                  '<option value="H265">H.265/HEVC (Better efficiency)</option>' +
+                  '<option value="H264">H.264 (Most compatible)</option>' +
+                  '<option value="H265" selected>H.265/HEVC (Better efficiency)</option>' +
                   '<option value="VP8">VP8</option>' +
                   '<option value="VP9">VP9 (Better compression)</option>' +
                 '</select>' +
@@ -301,9 +301,9 @@ class AdminDashboard {
               '<div class="form-group">' +
                 '<label for="settings-quality">Video Quality</label>' +
                 '<select id="settings-quality">' +
-                  '<option value="sd">SD (480p)</option>' +
-                  '<option value="hd">HD (720p)</option>' +
-                  '<option value="fhd">Full HD (1080p)</option>' +
+                  '<option value="720p">720p (HD)</option>' +
+                  '<option value="1080p">1080p (Full HD)</option>' +
+                  '<option value="original">Original</option>' +
                 '</select>' +
               '</div>' +
               '<div class="form-group">' +
@@ -317,7 +317,7 @@ class AdminDashboard {
               '</div>' +
               '<div class="form-group">' +
                 '<label for="settings-max">Max Participants</label>' +
-                '<input type="number" id="settings-max" min="2" max="50">' +
+                '<input type="number" id="settings-max" min="2" max="50" placeholder="Maximum participants">' +
               '</div>' +
             '</form>' +
             '<h4 style="margin-top: var(--space-lg); margin-bottom: var(--space-md);">Participants</h4>' +
@@ -394,7 +394,7 @@ class AdminDashboard {
             '</div>' +
           '</div>' +
           '<div class="room-card-settings">' +
-            '<span class="room-card-badge"><strong>Quality:</strong> ' + room.quality.toUpperCase() + '</span>' +
+            '<span class="room-card-badge"><strong>Quality:</strong> ' + this.formatQuality(room.quality) + '</span>' +
             '<span class="room-card-badge"><strong>Codec:</strong> ' + room.codec + '</span>' +
           '</div>' +
           '<div class="room-card-actions">' +
@@ -526,7 +526,7 @@ class AdminDashboard {
         // Reset form
         document.getElementById('new-room-password').value = '';
         document.getElementById('new-room-max').value = '10';
-        document.getElementById('new-room-quality').value = 'hd';
+        document.getElementById('new-room-quality').value = '720p';
         document.getElementById('new-room-codec').value = 'H264';
       }
     });
@@ -648,6 +648,18 @@ class AdminDashboard {
   // =============================================================================
   // Utilities
   // =============================================================================
+
+  /**
+   * Format quality value for display
+   */
+  formatQuality(quality) {
+    switch (quality) {
+      case '720p': return '720p (HD)';
+      case '1080p': return '1080p (Full HD)';
+      case 'original': return 'Original';
+      default: return quality.toUpperCase();
+    }
+  }
 
   getRoomUptime(createdAt) {
     var now = new Date();

@@ -43,7 +43,7 @@ describe('API Endpoints', () => {
     // Create room
     app.post('/api/rooms', async (req, res) => {
       try {
-        const { password, maxParticipants = 10, quality = 'hd', codec = 'H264' } = req.body;
+        const { password, maxParticipants = 10, quality = '720p', codec = 'H264' } = req.body;
         const room = roomManager.createRoom({
           password,
           maxParticipants,
@@ -139,7 +139,7 @@ describe('API Endpoints', () => {
       const roomData = {
         password: 'secret123',
         maxParticipants: 5,
-        quality: 'sd',
+        quality: '1080p',
         codec: 'VP9'
       };
 
@@ -181,7 +181,7 @@ describe('API Endpoints', () => {
         id: room.id,
         participantCount: 0,
         maxParticipants: 5,
-        quality: 'hd',
+        quality: '720p',
         codec: 'H264'
       });
       expect(response.body.room).toHaveProperty('createdAt');

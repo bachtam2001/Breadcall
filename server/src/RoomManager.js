@@ -26,7 +26,7 @@ class RoomManager {
    * @returns {Object} Created room
    */
   createRoom(options = {}) {
-    const { password = null, maxParticipants = 10, quality = 'hd', codec = 'H264' } = options;
+    const { password = null, maxParticipants = 10, quality = '720p', codec = 'H264' } = options;
 
     // Generate unique room ID
     let roomId;

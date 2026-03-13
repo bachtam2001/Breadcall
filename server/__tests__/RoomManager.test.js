@@ -20,7 +20,7 @@ describe('RoomManager', () => {
       expect(room.id).toHaveLength(4);
       expect(room.password).toBeNull();
       expect(room.maxParticipants).toBe(10);
-      expect(room.quality).toBe('hd');
+      expect(room.quality).toBe('720p');
       expect(room.codec).toBe('H264');
       expect(room.participants.size).toBe(0);
     });
@@ -29,13 +29,13 @@ describe('RoomManager', () => {
       const room = roomManager.createRoom({
         password: 'secret123',
         maxParticipants: 5,
-        quality: 'sd',
+        quality: '1080p',
         codec: 'VP9'
       });
 
       expect(room.password).toBe('secret123');
       expect(room.maxParticipants).toBe(5);
-      expect(room.quality).toBe('sd');
+      expect(room.quality).toBe('1080p');
       expect(room.codec).toBe('VP9');
     });
 

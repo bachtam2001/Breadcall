@@ -213,7 +213,7 @@ app.put('/api/admin/rooms/:roomId/settings', authMiddleware.isAuthenticated.bind
   const { quality, codec, maxParticipants } = req.body;
   const updates = {};
 
-  if (quality && ['sd', 'hd', 'fhd'].includes(quality)) {
+  if (quality && ['720p', '1080p', 'original'].includes(quality)) {
     updates.quality = quality;
   }
   if (codec && ['H264', 'H265', 'VP8', 'VP9'].includes(codec)) {
