@@ -274,6 +274,7 @@ class AdminDashboard {
                 '<label for="new-room-codec">Video Codec</label>' +
                 '<select id="new-room-codec">' +
                   '<option value="H264" selected>H.264 (Most compatible)</option>' +
+                  '<option value="H265">H.265/HEVC (Better efficiency)</option>' +
                   '<option value="VP8">VP8</option>' +
                   '<option value="VP9">VP9 (Better compression)</option>' +
                 '</select>' +
@@ -309,6 +310,7 @@ class AdminDashboard {
                 '<label for="settings-codec">Video Codec</label>' +
                 '<select id="settings-codec">' +
                   '<option value="H264">H.264</option>' +
+                  '<option value="H265">H.265/HEVC</option>' +
                   '<option value="VP8">VP8</option>' +
                   '<option value="VP9">VP9</option>' +
                 '</select>' +

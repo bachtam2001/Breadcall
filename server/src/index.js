@@ -216,7 +216,7 @@ app.put('/api/admin/rooms/:roomId/settings', authMiddleware.isAuthenticated.bind
   if (quality && ['sd', 'hd', 'fhd'].includes(quality)) {
     updates.quality = quality;
   }
-  if (codec && ['H264', 'VP8', 'VP9'].includes(codec)) {
+  if (codec && ['H264', 'H265', 'VP8', 'VP9'].includes(codec)) {
     updates.codec = codec;
   }
   if (maxParticipants && typeof maxParticipants === 'number' && maxParticipants > 0) {

@@ -45,8 +45,9 @@ class BreadCallApp {
     });
 
     this.signaling.addEventListener('joined-room', (e) => {
-      const { participantId, existingPeers } = e.detail;
+      const { participantId, existingPeers, room } = e.detail;
       this.participantId = participantId;
+      this.roomCodec = room?.codec || 'H264'; // Store room codec
 
       // Clear join timeout and reset joining state
       if (this.joinTimeoutId) {
@@ -56,18 +57,18 @@ class BreadCallApp {
       this.isJoining = false;
 
       if (!this.webrtc) {
-        this.webrtc = new WebRTCManager(this.signaling, { config: this.webrtcConfig });
+        this.webrtc = new WebRTCManager(this.signaling, { config: this.webrtcConfig, videoCodec: this.roomCodec });
         this.setupWebRTCHandlers();
       }
 
       const localStreamName = `${this.roomId}_${this.participantId}`;
       if (this.localStream) {
-        this.webrtc.setLocalStream(this.localStream, localStreamName);
+        this.webrtc.setLocalStream(this.localStream, localStreamName, this.roomCodec);
       }
 
       existingPeers.forEach(peer => {
         if (peer.streamName) {
-          this.webrtc.consumeRemoteStream(peer.participantId, peer.streamName);
+          this.webrtc.consumeRemoteStream(peer.participantId, peer.streamName, this.roomCodec);
         }
       });
     });

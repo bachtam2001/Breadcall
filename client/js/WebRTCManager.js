@@ -6,6 +6,7 @@ class WebRTCManager extends EventTarget {
     super();
     this.signaling = signalingClient;
     this.config = options.config || null; // { webrtcUrl, app, iceServers }
+    this.videoCodec = options.videoCodec || 'H265'; // Default to H265 for backwards compatibility
 
     this.whipClient = null;
     this.playbackConnections = new Map(); // participantId -> { pc }
@@ -26,14 +27,16 @@ class WebRTCManager extends EventTarget {
    * Set local media stream and publish via WHIP
    * @param {MediaStream} stream
    * @param {string} streamName - Unique stream name from backend
+   * @param {string} videoCodec - Video codec to use (H264, H265, VP8, VP9)
    */
-  async setLocalStream(stream, streamName) {
+  async setLocalStream(stream, streamName, videoCodec) {
     if (!this.config) {
       console.error('[WebRTCManager] Cannot publish: WebRTC config missing');
       return;
     }
 
     this.localStream = stream;
+    const codec = videoCodec || this.videoCodec;
 
     if (this.whipClient) {
       await this.whipClient.stop();
@@ -44,7 +47,7 @@ class WebRTCManager extends EventTarget {
     const whipEndpoint = `${webrtcUrl}/${streamName}/whip`;
     this.whipClient = new WHIPClient(whipEndpoint, {
       authToken: this.config.authToken,
-      videoCodec: 'H265',
+      videoCodec: codec,
       audioCodec: 'opus'
     });
 
@@ -63,8 +66,9 @@ class WebRTCManager extends EventTarget {
    * Based on MediaMTX WebRTC reader
    * @param {string} participantId
    * @param {string} streamName
+   * @param {string} videoCodec - Video codec to use (H264, H265, VP8, VP9)
    */
-  async consumeRemoteStream(participantId, streamName) {
+  async consumeRemoteStream(participantId, streamName, videoCodec) {
     if (!this.config) {
       console.error('[WebRTCManager] Cannot consume: WebRTC config missing');
       return;
@@ -80,11 +84,13 @@ class WebRTCManager extends EventTarget {
 
     console.log('[WebRTCManager] Connecting to MediaMTX for WHEP playback:', whepEndpoint);
 
+    const codec = videoCodec || this.videoCodec;
+
     try {
       // Create WHEP client with MediaMTX WebRTC reader pattern
       const whepClient = new WHEPClient(whepEndpoint, null, {
         authToken: this.config.authToken,
-        videoCodec: 'H265',
+        videoCodec: codec,
         audioCodec: 'opus',
         onTrack: (event) => {
           console.log('[WebRTCManager] Received track from', participantId, event.track.kind);
