@@ -29,6 +29,29 @@ class AuthMiddleware {
   }
 
   /**
+   * Timing-safe password comparison to prevent timing attacks
+   */
+  safePasswordMatch(provided, stored) {
+    const providedBuffer = Buffer.from(provided);
+    const storedBuffer = Buffer.from(stored);
+
+    // Use timingSafeEqual if both buffers are same length
+    if (providedBuffer.length === storedBuffer.length) {
+      return crypto.timingSafeEqual(providedBuffer, storedBuffer);
+    }
+
+    // For different lengths, pad and compare
+    const maxLength = Math.max(providedBuffer.length, storedBuffer.length);
+    const paddedProvided = Buffer.alloc(maxLength);
+    const paddedStored = Buffer.alloc(maxLength);
+
+    providedBuffer.copy(paddedProvided);
+    storedBuffer.copy(paddedStored);
+
+    return crypto.timingSafeEqual(paddedProvided, paddedStored);
+  }
+
+  /**
    * Get the session middleware
    */
   getSessionMiddleware() {
@@ -62,8 +85,8 @@ class AuthMiddleware {
       });
     }
 
-    // Simple password comparison (use bcrypt for production)
-    if (password === this.adminPassword) {
+    // Timing-safe password comparison
+    if (this.safePasswordMatch(password, this.adminPassword)) {
       req.session.isAdmin = true;
       req.session.loggedInAt = new Date().toISOString();
 
@@ -84,12 +107,19 @@ class AuthMiddleware {
    * POST /api/admin/logout
    */
   logout(req, res) {
-    if (req.session) {
-      req.session.isAdmin = false;
-    }
-    res.json({
-      success: true,
-      message: 'Logout successful'
+    // Destroy session completely to prevent session fixation
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).json({
+          success: false,
+          error: 'Logout failed'
+        });
+      }
+      res.clearCookie('connect.sid');
+      res.json({
+        success: true,
+        message: 'Logout successful'
+      });
     });
   }
 

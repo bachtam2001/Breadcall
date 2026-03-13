@@ -21,29 +21,11 @@ class UIManager {
         <h1 class="landing-logo">BreadCall</h1>
         <p class="landing-description">
           Professional WebRTC platform for live production.
-          Create rooms, split streams, and broadcast with low latency.
+          Join a room to start broadcasting.
         </p>
 
         <div class="landing-form glass-panel">
-          <h2>Create or Join Room</h2>
-
-          <form id="create-room-form">
-            <div class="form-group">
-              <label for="room-name">Room Name (optional)</label>
-              <input type="text" id="room-name" placeholder="My Room">
-            </div>
-            <div class="form-group">
-              <label for="room-password">Password (optional)</label>
-              <input type="password" id="room-password" placeholder="Enter password">
-            </div>
-            <div class="form-actions">
-              <button type="submit" class="btn btn-primary btn-block">
-                Create New Room
-              </button>
-            </div>
-          </form>
-
-          <div class="form-divider">or</div>
+          <h2>Join Room</h2>
 
           <form id="join-room-form">
             <div class="form-group">
@@ -60,11 +42,15 @@ class UIManager {
               <input type="password" id="join-password" placeholder="Room password">
             </div>
             <div class="form-actions">
-              <button type="submit" class="btn btn-secondary btn-block">
+              <button type="submit" class="btn btn-primary btn-block">
                 Join Room
               </button>
             </div>
           </form>
+        </div>
+
+        <div style="margin-top: 24px; text-align: center;">
+          <a href="/admin" style="color: var(--color-text-secondary); font-size: var(--font-size-sm);">Admin Panel</a>
         </div>
       </div>
     `;
