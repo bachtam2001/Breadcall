@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const CLIENT_DIR = 'client/js';
-const BUILD_DIR = 'client/js/dist';
+const BUILD_DIR = 'public/js/dist';
 
 // Ensure build directory exists
 if (!fs.existsSync(BUILD_DIR)) {
@@ -89,9 +89,41 @@ async function buildAdminApp() {
   }
 }
 
+async function buildCSS() {
+  console.log('Building CSS bundles...\n');
+
+  const cssDir = 'client/css';
+  const outputDir = 'public/css';
+
+  // Ensure output directory exists
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+
+  const cssFiles = ['index.css', 'admin.css'];
+
+  for (const file of cssFiles) {
+    try {
+      await esbuild.build({
+        entryPoints: [path.join(cssDir, file)],
+        outfile: path.join(outputDir, file.replace('.css', '.min.css')),
+        minify: true,
+        bundle: true,
+        loader: { '.css': 'css' }
+      });
+
+      console.log(`✓ Built: ${file.replace('.css', '.min.css')}`);
+    } catch (error) {
+      console.error(`Failed to build ${file}:`, error.message);
+      process.exit(1);
+    }
+  }
+}
+
 async function buildAll() {
   await buildMainApp();
   await buildAdminApp();
+  await buildCSS();
 
   console.log('\n✓ Production build complete!');
   console.log('\nFiles are now minified and obfuscated.');
@@ -101,6 +133,18 @@ async function buildAll() {
   console.log('\nBundle sizes:');
   files.forEach(f => {
     const filePath = path.join(BUILD_DIR, f);
+    if (fs.existsSync(filePath)) {
+      const stats = fs.statSync(filePath);
+      const sizeKB = (stats.size / 1024).toFixed(2);
+      console.log(`  - ${f}: ${sizeKB} KB`);
+    }
+  });
+
+  // Show CSS file sizes
+  const cssFiles = ['index.min.css', 'admin.min.css'];
+  console.log('\nCSS bundles:');
+  cssFiles.forEach(f => {
+    const filePath = path.join('public/css', f);
     if (fs.existsSync(filePath)) {
       const stats = fs.statSync(filePath);
       const sizeKB = (stats.size / 1024).toFixed(2);
