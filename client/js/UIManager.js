@@ -47,9 +47,17 @@ class UIManager {
 
           <form id="join-room-form">
             <div class="form-group">
+              <label for="join-name">Your Name</label>
+              <input type="text" id="join-name" placeholder="Enter your name">
+            </div>
+            <div class="form-group">
               <label for="join-room-id">Room ID</label>
               <input type="text" id="join-room-id" placeholder="4-letter code" maxlength="4"
                      style="text-transform: uppercase; letter-spacing: 4px; text-align: center;">
+            </div>
+            <div class="form-group">
+              <label for="join-password">Password (if required)</label>
+              <input type="password" id="join-password" placeholder="Room password">
             </div>
             <div class="form-actions">
               <button type="submit" class="btn btn-secondary btn-block">
