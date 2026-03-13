@@ -1,4 +1,5 @@
 const session = require('express-session');
+const crypto = require('crypto');
 
 /**
  * AuthMiddleware - Session-based authentication for admin panel
