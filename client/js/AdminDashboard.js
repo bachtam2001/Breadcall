@@ -400,6 +400,9 @@ class AdminDashboard {
           '<div class="room-card-actions">' +
             '<button class="btn btn-secondary btn-sm view-participants-btn" data-room-id="' + room.id + '">View Participants</button>' +
             '<button class="btn btn-secondary btn-sm settings-btn" data-room-id="' + room.id + '">Settings</button>' +
+          '</div>' +
+          '<div class="room-card-actions" style="margin-top: var(--space-sm);">' +
+            '<button class="btn btn-accent btn-sm copy-link-btn" data-room-id="' + room.id + '" data-room-password="' + (room.password || '') + '">Copy Link</button>' +
             '<button class="btn btn-danger btn-sm delete-room-btn" data-room-id="' + room.id + '">Delete Room</button>' +
           '</div>' +
         '</div>';
@@ -479,9 +482,20 @@ class AdminDashboard {
   bindRoomCardEvents() {
     var self = this;
 
+    // Click on room card to go to director page (excluding buttons)
+    document.querySelectorAll('.room-card').forEach(function(card) {
+      card.addEventListener('click', function(e) {
+        // Don't navigate if clicking on buttons or interactive elements
+        if (e.target.closest('button')) return;
+        var roomId = e.currentTarget.dataset.roomId;
+        window.location.href = '/#/director/' + roomId;
+      });
+    });
+
     // View participants
     document.querySelectorAll('.view-participants-btn').forEach(function(btn) {
       btn.addEventListener('click', function(e) {
+        e.stopPropagation();
         var roomId = e.target.dataset.roomId;
         self.showParticipantsModal(roomId);
       });
@@ -490,6 +504,7 @@ class AdminDashboard {
     // Settings
     document.querySelectorAll('.settings-btn').forEach(function(btn) {
       btn.addEventListener('click', function(e) {
+        e.stopPropagation();
         var roomId = e.target.dataset.roomId;
         self.showSettingsModal(roomId);
       });
@@ -498,8 +513,19 @@ class AdminDashboard {
     // Delete room
     document.querySelectorAll('.delete-room-btn').forEach(function(btn) {
       btn.addEventListener('click', function(e) {
+        e.stopPropagation();
         var roomId = e.target.dataset.roomId;
         self.deleteRoom(roomId);
+      });
+    });
+
+    // Copy link button
+    document.querySelectorAll('.copy-link-btn').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var roomId = e.target.dataset.roomId;
+        var roomPassword = e.target.dataset.roomPassword || '';
+        self.copyRoomLink(roomId, roomPassword);
       });
     });
   }
@@ -526,8 +552,8 @@ class AdminDashboard {
         // Reset form
         document.getElementById('new-room-password').value = '';
         document.getElementById('new-room-max').value = '10';
-        document.getElementById('new-room-quality').value = '720p';
-        document.getElementById('new-room-codec').value = 'H264';
+        document.getElementById('new-room-quality').value = 'original';
+        document.getElementById('new-room-codec').value = 'H265';
       }
     });
   }
@@ -648,6 +674,70 @@ class AdminDashboard {
   // =============================================================================
   // Utilities
   // =============================================================================
+
+  /**
+   * Copy room join link to clipboard
+   */
+  copyRoomLink(roomId, password) {
+    var baseUrl = window.location.origin;
+    var link = baseUrl + '/?room=' + roomId;
+    if (password) {
+      link += '&password=' + password;
+    }
+
+    var self = this;
+    navigator.clipboard.writeText(link).then(function() {
+      self.showToast('Link copied to clipboard', 'success');
+    }).catch(function(err) {
+      // Fallback for older browsers
+      var textArea = document.createElement('textarea');
+      textArea.value = link;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        self.showToast('Link copied to clipboard', 'success');
+      } catch (err) {
+        self.showToast('Failed to copy link', 'error');
+      }
+      document.body.removeChild(textArea);
+    });
+  }
+
+  /**
+   * Copy iframe embed code to clipboard
+   */
+  copyRoomEmbed(roomId, password) {
+    var baseUrl = window.location.origin;
+    var embedUrl = baseUrl + '/?room=' + roomId;
+    if (password) {
+      embedUrl += '&password=' + password;
+    }
+
+    var embedCode = '<iframe src="' + embedUrl + '" width="100%" height="100%" frameborder="0" allow="camera; microphone; display-capture" allowfullscreen></iframe>';
+
+    var self = this;
+    navigator.clipboard.writeText(embedCode).then(function() {
+      self.showToast('Embed code copied to clipboard', 'success');
+    }).catch(function(err) {
+      // Fallback for older browsers
+      var textArea = document.createElement('textarea');
+      textArea.value = embedCode;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        self.showToast('Embed code copied to clipboard', 'success');
+      } catch (err) {
+        self.showToast('Failed to copy embed code', 'error');
+      }
+      document.body.removeChild(textArea);
+    });
+  }
 
   /**
    * Format quality value for display

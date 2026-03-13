@@ -16,6 +16,11 @@ class UIManager {
    * Render landing page
    */
   renderLanding() {
+    // Parse URL parameters for auto-fill
+    const urlParams = new URLSearchParams(window.location.search);
+    const roomIdFromUrl = urlParams.get('room');
+    const passwordFromUrl = urlParams.get('password');
+
     this.appElement.innerHTML = `
       <div class="landing animate-fade-in">
         <h1 class="landing-logo">BreadCall</h1>
@@ -30,16 +35,18 @@ class UIManager {
           <form id="join-room-form">
             <div class="form-group">
               <label for="join-name">Your Name</label>
-              <input type="text" id="join-name" placeholder="Enter your name">
+              <input type="text" id="join-name" placeholder="Enter your name" required>
             </div>
             <div class="form-group">
               <label for="join-room-id">Room ID</label>
               <input type="text" id="join-room-id" placeholder="4-letter code" maxlength="4"
-                     style="text-transform: uppercase; letter-spacing: 4px; text-align: center;">
+                     style="text-transform: uppercase; letter-spacing: 4px; text-align: center;"
+                     value="${roomIdFromUrl || ''}">
             </div>
             <div class="form-group">
               <label for="join-password">Password (optional)</label>
-              <input type="password" id="join-password" placeholder="Room password">
+              <input type="password" id="join-password" placeholder="Room password"
+                     value="${passwordFromUrl || ''}">
             </div>
             <div class="form-actions">
               <button type="submit" class="btn btn-primary btn-block">
@@ -52,11 +59,19 @@ class UIManager {
         <div style="margin-top: 24px; text-align: center;">
           <a href="/admin" style="color: var(--color-text-secondary); font-size: var(--font-size-sm);">Admin Panel</a>
         </div>
+
+        <div id="toast-container" class="toast-container"></div>
       </div>
     `;
 
     this.bindLandingEvents();
     this.currentView = 'landing';
+
+    // Auto-focus name field if room ID is pre-filled
+    if (roomIdFromUrl) {
+      const nameInput = document.getElementById('join-name');
+      if (nameInput) nameInput.focus();
+    }
   }
 
   /**

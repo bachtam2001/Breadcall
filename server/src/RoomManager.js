@@ -390,7 +390,8 @@ class RoomManager {
       quality: room.quality,
       codec: room.codec,
       createdAt: room.createdAt,
-      emptySince: room.emptySince
+      emptySince: room.emptySince,
+      password: room.password
     }));
   }
 

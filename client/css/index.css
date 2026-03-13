@@ -209,6 +209,15 @@ code, pre {
   border-color: var(--color-border-accent);
 }
 
+.btn-accent {
+  background-color: var(--color-info);
+  color: white;
+}
+
+.btn-accent:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
 .btn-danger {
   background-color: var(--color-error);
   color: white;
@@ -242,6 +251,7 @@ input[type="text"],
 input[type="password"],
 input[type="email"],
 input[type="url"],
+input[type="number"],
 select,
 textarea {
   width: 100%;
@@ -266,6 +276,17 @@ textarea:focus {
 input::placeholder,
 textarea::placeholder {
   color: var(--color-text-tertiary);
+}
+
+/* Number input specific styling */
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 label {

@@ -37,9 +37,8 @@ class BreadCallApp {
 
   setupSignalingHandlers() {
     this.signaling.addEventListener('connected', () => {
-      // Only show toast on first connection, not reconnections
+      // Track first connection for internal state (no user notification needed)
       if (!this.hasConnected) {
-        this.uiManager.showToast('Connected to server', 'success');
         this.hasConnected = true;
       }
     });

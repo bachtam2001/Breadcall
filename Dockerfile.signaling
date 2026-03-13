@@ -7,12 +7,19 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install production dependencies only
-RUN npm ci --only=production
+# Install all dependencies (including dev deps for build)
+RUN npm ci
 
 # Copy source code
 COPY server/ ./server/
 COPY client/ ./client/
+COPY build.js ./
+
+# Build JavaScript for production
+RUN npm run build
+
+# Remove dev dependencies to reduce image size
+RUN npm ci --only=production && npm prune --production
 
 # Create logs directory
 RUN mkdir -p logs
