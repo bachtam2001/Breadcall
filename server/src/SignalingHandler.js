@@ -61,6 +61,7 @@ class SignalingHandler {
     this.heartbeats = new Map(); // WebSocket -> { misses: number, timer: NodeJS.Timeout }
     this.heartbeatInterval = 30000; // 30 seconds
     this.maxMisses = 3;
+    this.heartbeatTimer = null; // Store interval timer reference for cleanup
 
     // Start heartbeat check
     this.startHeartbeatCheck();
@@ -262,7 +263,7 @@ class SignalingHandler {
    * @param {WebSocket} ws
    * @param {Object} payload
    */
-  handleJoinRoom(ws, payload, session = null) {
+  async handleJoinRoom(ws, payload, session = null) {
     const { roomId, name, password, autoGenerateToken } = payload || {};
 
     if (!roomId) {
@@ -277,7 +278,7 @@ class SignalingHandler {
     }
 
     try {
-      const result = this.roomManager.joinRoom(roomId, {
+      const result = await this.roomManager.joinRoom(roomId, {
         name: name ? sanitizeInput(name.substring(0, 50)) : undefined,
         password,
         ws
@@ -695,7 +696,7 @@ class SignalingHandler {
    * Start heartbeat check interval
    */
   startHeartbeatCheck() {
-    setInterval(() => {
+    this.heartbeatTimer = setInterval(() => {
       for (const [ws, heartbeat] of this.heartbeats.entries()) {
         if (ws.readyState !== WebSocket.OPEN) {
           this.cleanupConnection(ws);

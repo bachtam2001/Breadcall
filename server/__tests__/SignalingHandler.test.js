@@ -24,6 +24,21 @@ describe('SignalingHandler', () => {
     signalingHandler = new SignalingHandler(roomManager, mockWss);
   });
 
+  afterEach(() => {
+    // Clear heartbeat interval to prevent test isolation issues
+    if (signalingHandler.heartbeatTimer) {
+      clearInterval(signalingHandler.heartbeatTimer);
+    }
+    // Clean up all mock WebSocket connections
+    signalingHandler.wsMap.forEach((_, ws) => {
+      if (ws.close && typeof ws.close === jest.fn()) {
+        ws.close();
+      }
+    });
+    signalingHandler.wsMap.clear();
+    signalingHandler.heartbeats.clear();
+  });
+
   describe('handleConnection', () => {
     test('should initialize heartbeat for new connection', () => {
       signalingHandler.handleConnection(mockWs);
@@ -44,7 +59,7 @@ describe('SignalingHandler', () => {
   });
 
   describe('handleJoinRoom', () => {
-    test('should reject join without roomId', () => {
+    test('should reject join without roomId', async () => {
       signalingHandler.handleJoinRoom(mockWs, {});
 
       expect(mockWs.send).toHaveBeenCalledWith(
@@ -52,10 +67,10 @@ describe('SignalingHandler', () => {
       );
     });
 
-    test('should join room successfully', () => {
+    test('should join room successfully', async () => {
       const room = roomManager.createRoom();
 
-      signalingHandler.handleJoinRoom(mockWs, {
+      await signalingHandler.handleJoinRoom(mockWs, {
         roomId: room.id,
         name: 'Test User'
       });
@@ -65,8 +80,8 @@ describe('SignalingHandler', () => {
       );
     });
 
-    test('should handle join error', () => {
-      signalingHandler.handleJoinRoom(mockWs, {
+    test('should handle join error', async () => {
+      await signalingHandler.handleJoinRoom(mockWs, {
         roomId: 'XYZ8'
       });
 
@@ -152,9 +167,9 @@ describe('SignalingHandler', () => {
       );
     });
 
-    test('should leave room successfully', () => {
+    test('should leave room successfully', async () => {
       const room = roomManager.createRoom();
-      signalingHandler.handleJoinRoom(mockWs, { roomId: room.id, name: 'Test' });
+      await signalingHandler.handleJoinRoom(mockWs, { roomId: room.id, name: 'Test' });
 
       jest.clearAllMocks();
       signalingHandler.handleLeaveRoom(mockWs, {});
@@ -215,7 +230,7 @@ describe('SignalingHandler', () => {
       );
     });
 
-    test('should broadcast chat message to room', () => {
+    test('should broadcast chat message to room', async () => {
       const room = roomManager.createRoom();
       const mockWs2 = {
         send: jest.fn(),
@@ -223,8 +238,8 @@ describe('SignalingHandler', () => {
         close: jest.fn()
       };
 
-      signalingHandler.handleJoinRoom(mockWs, { roomId: room.id, name: 'User 1' });
-      signalingHandler.handleJoinRoom(mockWs2, { roomId: room.id, name: 'User 2' });
+      await signalingHandler.handleJoinRoom(mockWs, { roomId: room.id, name: 'User 1' });
+      await signalingHandler.handleJoinRoom(mockWs2, { roomId: room.id, name: 'User 2' });
 
       jest.clearAllMocks();
       signalingHandler.handleChatMessage(mockWs, { message: 'Hello!' });
@@ -237,7 +252,7 @@ describe('SignalingHandler', () => {
   });
 
   describe('handleMuteStatus', () => {
-    test('should update and broadcast mute status', () => {
+    test('should update and broadcast mute status', async () => {
       const room = roomManager.createRoom();
       const mockWs2 = {
         send: jest.fn(),
@@ -245,8 +260,8 @@ describe('SignalingHandler', () => {
         close: jest.fn()
       };
 
-      signalingHandler.handleJoinRoom(mockWs, { roomId: room.id, name: 'User 1' });
-      signalingHandler.handleJoinRoom(mockWs2, { roomId: room.id, name: 'User 2' });
+      await signalingHandler.handleJoinRoom(mockWs, { roomId: room.id, name: 'User 1' });
+      await signalingHandler.handleJoinRoom(mockWs2, { roomId: room.id, name: 'User 2' });
 
       jest.clearAllMocks();
       signalingHandler.handleMuteStatus(mockWs, { isMuted: true, isVideoOff: true });
