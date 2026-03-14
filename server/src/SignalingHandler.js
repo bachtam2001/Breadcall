@@ -69,10 +69,17 @@ class SignalingHandler {
   /**
    * Handle new WebSocket connection
    * @param {WebSocket} ws
+   * @param {Object} session - Express session object
    */
-  handleConnection(ws) {
+  handleConnection(ws, session = null) {
     // Initialize heartbeat
     this.heartbeats.set(ws, { misses: 0, timer: null });
+
+    // Store session reference if available
+    if (session) {
+      this.wsSessionMap = this.wsSessionMap || new Map();
+      this.wsSessionMap.set(ws, session);
+    }
   }
 
   /**
@@ -90,6 +97,9 @@ class SignalingHandler {
 
     console.log(`[Signaling] Received: ${type}`, payload ? JSON.stringify(payload).substring(0, 100) : '');
 
+    // Get session for this WebSocket
+    const session = this.wsSessionMap?.get(ws) || null;
+
     switch (type) {
       case 'ping':
         this.handlePing(ws);
@@ -100,7 +110,7 @@ class SignalingHandler {
         break;
 
       case 'join-room':
-        this.handleJoinRoom(ws, payload);
+        this.handleJoinRoom(ws, payload, session);
         break;
 
       case 'join-room-with-token':
@@ -252,7 +262,7 @@ class SignalingHandler {
    * @param {WebSocket} ws
    * @param {Object} payload
    */
-  handleJoinRoom(ws, payload) {
+  handleJoinRoom(ws, payload, session = null) {
     const { roomId, name, password, autoGenerateToken } = payload || {};
 
     if (!roomId) {
@@ -273,19 +283,26 @@ class SignalingHandler {
         ws
       }, autoGenerateToken === true);
 
-      // Store connection mapping
+      // Store connection mapping with session reference
       this.wsMap.set(ws, {
         participantId: result.participantId,
-        roomId: result.roomId
+        roomId: result.roomId,
+        session
       });
 
-      // Send success response
+      // Store token in session if generated (never send raw token to client)
+      if (result.token && session) {
+        if (!session.tokens) session.tokens = {};
+        session.tokens[result.roomId] = result.token;
+        session.roomId = result.roomId; // Track current room for auto-rejoin
+      }
+
+      // Send success response (without token - stored in session)
       this.send(ws, {
         type: 'joined-room',
         participantId: result.participantId,
         room: result.room,
-        existingPeers: result.existingPeers,
-        token: result.token || null
+        existingPeers: result.existingPeers
       });
 
       // Notify existing participants about new peer (excluding directors)

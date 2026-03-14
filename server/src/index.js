@@ -115,6 +115,30 @@ app.get('/api/webrtc-config', (req, res) => {
   });
 });
 
+// Get session info for auto-rejoin (returns roomId if user has valid token in session)
+app.get('/api/session/room', (req, res) => {
+  if (req.session && req.session.tokens && req.session.roomId) {
+    const roomId = req.session.roomId;
+    const token = req.session.tokens[roomId];
+
+    // Validate token is still valid
+    const validation = roomManager.validateToken(token, 'join');
+    if (validation.valid) {
+      res.json({
+        success: true,
+        hasRoom: true,
+        roomId
+      });
+      return;
+    }
+  }
+
+  res.json({
+    success: true,
+    hasRoom: false
+  });
+});
+
 // =============================================================================
 // Admin API Routes
 // =============================================================================
@@ -434,8 +458,29 @@ const wss = new WebSocket.Server({ server, path: '/ws' });
 const roomManager = new RoomManager();
 const signalingHandler = new SignalingHandler(roomManager, wss);
 
+// Parse session from cookie for WebSocket connections
+const parseSessionFromCookie = (cookie) => {
+  if (!cookie) return null;
+
+  // Extract connect.sid from cookie string
+  const match = cookie.match(/connect\.sid=([^;]+)/);
+  if (!match) return null;
+
+  // URL decode the session ID
+  const sessionId = decodeURIComponent(match[1]);
+
+  // Get session from middleware's store
+  const sessionStore = authMiddleware.getSessionMiddleware().store;
+  return new Promise((resolve, reject) => {
+    sessionStore.get(sessionId, (err, session) => {
+      if (err) reject(err);
+      else resolve(session);
+    });
+  });
+};
+
 // Handle WebSocket connections
-wss.on('connection', (ws, req) => {
+wss.on('connection', async (ws, req) => {
   // Validate origin
   const origin = req.headers.origin;
   if (origin && !ALLOWED_ORIGINS.includes(origin)) {
@@ -444,9 +489,13 @@ wss.on('connection', (ws, req) => {
     return;
   }
 
-  console.log(`[WebSocket] New connection from ${origin || 'unknown origin'}`);
+  // Parse session from cookie
+  const cookie = req.headers.cookie;
+  const session = await parseSessionFromCookie(cookie);
 
-  signalingHandler.handleConnection(ws);
+  console.log(`[WebSocket] New connection from ${origin || 'unknown origin'}${session ? ' (authenticated)' : ' (no session)'}`);
+
+  signalingHandler.handleConnection(ws, session);
 
   ws.on('message', (message) => {
     try {
