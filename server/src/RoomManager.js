@@ -3,15 +3,16 @@ const WebSocket = require('ws');
 const crypto = require('crypto');
 
 class RoomManager {
-  constructor() {
+  constructor(tokenManager = null) {
     this.rooms = new Map();
     this.directors = new Map(); // roomId -> Set of director WebSockets
     this.roomTTL = 5 * 60 * 1000; // 5 minutes TTL for empty rooms
+    this.tokenManager = tokenManager; // Optional TokenManager for JWT tokens
 
-    // Token storage
-    this.tokens = new Map();           // tokenId -> TokenData
-    this.tokenIndex = new Map();       // roomId -> Set of tokenIds
-    this.revokedTokens = new Set();    // Revoked token IDs
+    // Legacy token storage (for backward compatibility during migration)
+    this.tokens = new Map();
+    this.tokenIndex = new Map();
+    this.revokedTokens = new Set();
   }
 
   /**
@@ -59,13 +60,12 @@ class RoomManager {
   }
 
   /**
-   * Join a room
+   * Join a room - always generates JWT token pair
    * @param {string} roomId - Room ID
    * @param {Object} participant - Participant info
-   * @param {boolean} autoGenerateToken - Whether to auto-generate a room_access token
-   * @returns {Object} Join result with existing peers and optional token
+   * @returns {Object} Join result with existing peers and token info
    */
-  joinRoom(roomId, participant, autoGenerateToken = false) {
+  async joinRoom(roomId, participant) {
     const room = this.rooms.get(roomId);
 
     if (!room) {
@@ -132,8 +132,25 @@ class RoomManager {
       existingPeers
     };
 
-    // Auto-generate token if requested (after successful password check)
-    if (autoGenerateToken) {
+    // Auto-generate JWT token pair (always enabled)
+    if (this.tokenManager) {
+      try {
+        const tokenPair = await this.tokenManager.generateTokenPair({
+          type: 'room_access',
+          roomId,
+          userId: participantId,
+          permissions: ['join', 'send-audio', 'send-video', 'chat']
+        });
+        result.token = tokenPair.accessToken;
+        result.tokenId = tokenPair.tokenId;
+        result.expiresIn = tokenPair.expiresIn;
+        console.log(`[RoomManager] Auto-generated JWT token for participant ${participantId} in room ${roomId}`);
+      } catch (error) {
+        console.error('[RoomManager] Failed to auto-generate token:', error.message);
+        // Don't fail join if token generation fails
+      }
+    } else {
+      // Fallback to legacy token generation if TokenManager not available
       try {
         const token = this.generateToken(roomId, 'room_access', {
           userId: participantId,
@@ -145,10 +162,9 @@ class RoomManager {
           issuedBy: 'auto-join'
         });
         result.token = token;
-        console.log(`[RoomManager] Auto-generated token for participant ${participantId} in room ${roomId}`);
+        console.log(`[RoomManager] Auto-generated legacy token for participant ${participantId} in room ${roomId}`);
       } catch (error) {
-        console.error('[RoomManager] Failed to auto-generate token:', error.message);
-        // Don't fail join if token generation fails
+        console.error('[RoomManager] Failed to auto-generate legacy token:', error.message);
       }
     }
 
@@ -273,11 +289,21 @@ class RoomManager {
    * @param {string} roomId - Room ID
    * @returns {boolean} Success
    */
-  deleteRoom(roomId) {
+  async deleteRoom(roomId) {
     const room = this.rooms.get(roomId);
 
     if (!room) {
       return false;
+    }
+
+    // Revoke all tokens for this room if TokenManager is available
+    if (this.tokenManager) {
+      try {
+        await this.tokenManager.revokeTokensByRoom(roomId, 'room deleted');
+        console.log(`[RoomManager] Revoked all tokens for room ${roomId}`);
+      } catch (error) {
+        console.error('[RoomManager] Failed to revoke tokens:', error.message);
+      }
     }
 
     // Clear TTL timer
@@ -315,6 +341,15 @@ class RoomManager {
     console.log(`[RoomManager] Room deleted: ${roomId}`);
 
     return true;
+  }
+
+  /**
+   * Set the TokenManager instance
+   * @param {TokenManager} tokenManager - TokenManager instance
+   */
+  setTokenManager(tokenManager) {
+    this.tokenManager = tokenManager;
+    console.log('[RoomManager] TokenManager initialized');
   }
 
   /**

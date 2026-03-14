@@ -4,9 +4,9 @@
 
 **Goal:** Migrate from custom HMAC-signed tokens to JWT-based access/refresh token system with stateless validation and Redis-backed revocation.
 
-**Architecture:** Two-token system with short-lived JWT access tokens (30 min) for stateless validation and long-lived refresh tokens (24h) stored in Redis+DB for revocation.
+**Architecture:** Two-token system with short-lived JWT access tokens (15 min) for stateless validation and long-lived refresh tokens (24h) with rotation stored in Redis+DB for revocation. Access tokens stored in HttpOnly cookies with CSRF protection.
 
-**Tech Stack:** jsonwebtoken library, Redis for revocation cache, SQLite for persistent audit trail.
+**Tech Stack:** jsonwebtoken library, Redis for revocation cache, SQLite for persistent audit trail, CSRF tokens for mutation requests.
 
 ---
 
@@ -35,15 +35,15 @@
   "userId": "uuid-v4-string",
   "permissions": ["join", "send-audio", "send-video", "chat"],
   "iat": 1710432000,
-  "exp": 1710433800
+  "exp": 1710432900
 }
 ```
 
-**Note:** `nbf` (not before) claim is intentionally omitted since access tokens are short-lived (30 min) and issued for immediate use.
+**Note:** `nbf` (not before) claim is intentionally omitted since access tokens are short-lived (15 min) and issued for immediate use.
 
 **Signature:** HMAC-SHA256 using `TOKEN_SECRET` environment variable
 
-**Transmission:** `Authorization: Bearer <jwt>` header
+**Transmission:** HttpOnly cookie (`accessToken`) with CSRF token in `X-CSRF-Token` header for mutation requests
 
 ### 1.2 Refresh Token (Opaque)
 
@@ -61,11 +61,14 @@
   "roomId": "ABC123",
   "userId": "user-uuid",
   "expiresAt": 1710518400000,
-  "revoked": false
+  "revoked": false,
+  "rotatedTo": null
 }
 ```
 
 **Redis TTL:** `expiresAt - currentTime` (auto-expires)
+
+**Refresh Token Rotation:** On each refresh token use, a new refresh token is issued and the old one is marked with `rotatedTo` pointing to the new token ID. This limits the window of token reuse and detects token theft.
 
 **Database Table:** `refresh_tokens`
 ```sql
@@ -82,6 +85,8 @@ CREATE TABLE refresh_tokens (
 ```
 
 **Transmission:** HttpOnly cookie (`refreshToken`)
+
+**CSRF Protection:** CSRF token stored in `csrfToken` cookie (SameSite=Lax, no HttpOnly) and validated via `X-CSRF-Token` header on mutation requests (POST, PUT, DELETE, PATCH)
 
 ---
 
@@ -169,9 +174,12 @@ Cookie: refreshToken=refresh_<uuid>
 {
   "success": true,
   "accessToken": "<new-jwt>",
-  "expiresIn": 1800
+  "refreshToken": "refresh_<new-uuid>",
+  "expiresIn": 900
 }
 ```
+
+**Note:** Refresh token rotation issues a new refresh token on each use. The old refresh token is marked as rotated and becomes invalid.
 
 **Error Responses:**
 
@@ -215,10 +223,10 @@ Body: { type, roomId, options }
 
 ### 3.2 Auto-Generated Join Tokens
 
-When a user joins a room via `joinRoom()` with `autoGenerateToken=true`:
+When a user joins a room via `joinRoom()` (autoGenerateToken is always enabled):
 1. Generate token pair (access + refresh)
-2. Set refresh token as HttpOnly cookie in response
-3. Return access token in response body (or set as cookie)
+2. Set both tokens as HttpOnly cookies in response (with CSRF token)
+3. Return success response (tokens transmitted via cookies)
 
 ---
 
@@ -261,8 +269,9 @@ async isRevoked(tokenId) {
 
 | Token Type | Storage | Transmission |
 |------------|---------|--------------|
-| Access Token | Memory (JS variable) | `Authorization: Bearer <token>` header |
-| Refresh Token | HttpOnly cookie (automatic) | Cookie header (automatic) |
+| Access Token | HttpOnly cookie (`accessToken`) | Cookie header (automatic), CSRF token in `X-CSRF-Token` header |
+| Refresh Token | HttpOnly cookie (`refreshToken`) | Cookie header (automatic) |
+| CSRF Token | Non-HttpOnly cookie (`csrfToken`) | `X-CSRF-Token` header on mutation requests |
 
 ### 5.2 Token Initialization
 
@@ -272,8 +281,9 @@ async isRevoked(tokenId) {
 - `refreshToken` is automatically stored by browser via `Set-Cookie` header (HttpOnly)
 
 **Page Reload Handling:**
-- On page reload, `accessToken` memory is lost
-- Client must call `POST /api/tokens/refresh` to obtain new access token
+- On page reload, both access and refresh cookies persist
+- Client must read CSRF token from cookie and include in subsequent mutation requests
+- If access token expires, call `POST /api/tokens/refresh` to obtain new access token
 - Refresh cookie persists across page reloads (subject to expiry/revocation)
 - If refresh fails (401), redirect to login/admin for re-authentication
 
@@ -281,22 +291,34 @@ async isRevoked(tokenId) {
 
 ```javascript
 class BreadCallApp {
+  // Get CSRF token from cookie
+  getCsrfToken() {
+    const match = document.cookie.match(/csrfToken=([^;]+)/);
+    return match ? match[1] : null;
+  }
+
   async fetchWithAuth(url, options = {}) {
-    // Add access token to request
-    if (this.accessToken) {
+    // Add CSRF token to mutation requests
+    const isMutation = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(options.method?.toUpperCase());
+    if (isMutation) {
       options.headers = {
         ...options.headers,
-        'Authorization': `Bearer ${this.accessToken}`
+        'X-CSRF-Token': this.getCsrfToken()
       };
     }
+
+    // Credentials included automatically via cookie
+    options.credentials = 'include';
 
     let response = await fetch(url, options);
 
     // Handle 401 (expired access token)
     if (response.status === 401) {
       await this.refreshAccessToken();
-      // Retry with new token
-      options.headers.Authorization = `Bearer ${this.accessToken}`;
+      // Retry with new token (cookies sent automatically)
+      if (isMutation) {
+        options.headers['X-CSRF-Token'] = this.getCsrfToken();
+      }
       response = await fetch(url, options);
     }
 
@@ -306,12 +328,16 @@ class BreadCallApp {
   async refreshAccessToken() {
     const response = await fetch('/api/tokens/refresh', {
       method: 'POST',
-      credentials: 'include' // Send refresh cookie
+      credentials: 'include', // Send refresh cookie
+      headers: {
+        'X-CSRF-Token': this.getCsrfToken()
+      }
     });
 
     const data = await response.json();
     if (data.success) {
-      this.accessToken = data.accessToken;
+      // Access token cookie is set automatically by server
+      // New refresh token cookie also set (rotation)
     } else {
       // Full re-auth required
       this.logout();
@@ -326,12 +352,12 @@ class BreadCallApp {
 
 | File | Changes |
 |------|---------|
-| `server/src/RoomManager.js` | Replace `generateToken()`, `validateToken()` with JWT versions. Add `generateTokenPair()`, `validateAccessToken()`, `validateRefreshToken()` |
-| `server/src/AuthMiddleware.js` | Add JWT validation middleware, refresh token guard |
-| `server/src/index.js` | Add `/api/tokens/refresh` endpoint |
-| `server/package.json` | Add `jsonwebtoken` dependency |
-| `client/js/app.js` | Add `fetchWithAuth()` wrapper, token refresh logic |
-| `server/src/database.js` | Create `refresh_tokens` table |
+| `server/src/RoomManager.js` | Replace `generateToken()`, `validateToken()` with JWT versions. Add `generateTokenPair()`, `validateAccessToken()`, `validateRefreshToken()`, `rotateRefreshToken()`. Remove `autoGenerateToken` option (always enabled) |
+| `server/src/AuthMiddleware.js` | Add JWT validation middleware, refresh token guard, CSRF protection middleware |
+| `server/src/index.js` | Add `/api/tokens/refresh` endpoint, update `/api/tokens` to return cookies |
+| `server/package.json` | Add `jsonwebtoken`, `csrf-csrf` dependencies |
+| `client/js/app.js` | Update to use cookie-based auth, add CSRF token handling, update auto-refresh logic |
+| `server/src/database.js` | Create `refresh_tokens` table with `rotatedTo` column |
 
 ---
 
@@ -357,10 +383,12 @@ class BreadCallApp {
 
 1. **TOKEN_SECRET** must be set in environment (min 32 chars)
 2. **HTTPS required** in production (cookies marked `secure`)
-3. **SameSite=strict** on refresh cookie
-4. **HttpOnly** on refresh cookie (no JS access)
-5. **Short access token lifetime** (30 min) limits exposure window
+3. **SameSite=strict** on refresh and access cookies
+4. **HttpOnly** on access and refresh cookies (no JS access)
+5. **Short access token lifetime** (15 min) limits exposure window
 6. **Revocation check** on refresh token prevents misuse
+7. **Refresh token rotation** detects token theft via reuse detection
+8. **CSRF protection** required on all mutation requests via `X-CSRF-Token` header
 
 ---
 
@@ -370,16 +398,20 @@ class BreadCallApp {
    - `generateTokenPair()` returns valid JWT + refresh token
    - `validateAccessToken()` validates JWT without DB lookup
    - `validateRefreshToken()` checks Redis + DB
+   - `rotateRefreshToken()` issues new token and invalidates old one
    - Revoked refresh token returns 401
+   - CSRF validation passes/fails appropriately
 
 2. **Integration Tests:**
-   - Token refresh flow (expired access → refresh → retry)
+   - Token refresh flow with rotation (expired access → refresh → new tokens)
    - Admin revokes token → client gets 401 on refresh
    - Room deletion → all tokens revoked
+   - CSRF token missing/invalid → 403 on mutation requests
 
 3. **E2E Tests:**
    - Join room with token → access token expires → refresh → continue in room
    - Director revokes participant → participant gets 401
+   - Token rotation detects reuse attack (stolen token usage)
 
 ---
 
@@ -392,3 +424,8 @@ class BreadCallApp {
 - [ ] Backward compatible migration path
 - [ ] All existing tests pass
 - [ ] New token tests pass
+- [ ] Access token stored in HttpOnly cookie (not Authorization header)
+- [ ] CSRF protection enforced on mutation requests
+- [ ] Refresh token rotation issues new token on each refresh
+- [ ] Token reuse detection (rotated token usage alerts/revokes)
+- [ ] `joinRoom()` always generates tokens (no option parameter)

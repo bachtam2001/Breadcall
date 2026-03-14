@@ -3,17 +3,27 @@ const http = require('http');
 const WebSocket = require('ws');
 const cors = require('cors');
 const path = require('path');
+const cookieParser = require('cookie-parser');
+const { doubleCsrf } = require('csrf-csrf');
 require('dotenv').config();
 
 const RoomManager = require('./RoomManager');
 const SignalingHandler = require('./SignalingHandler');
 const AuthMiddleware = require('./AuthMiddleware');
+const RedisClient = require('./RedisClient');
+const Database = require('./database');
+const TokenManager = require('./TokenManager');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Initialize auth middleware
 const authMiddleware = new AuthMiddleware();
+
+// Initialize Redis, Database, and TokenManager
+const redisClient = new RedisClient();
+const database = new Database();
+const tokenManager = new TokenManager(redisClient, database);
 
 // Allowed origins for CORS (loaded from environment variable)
 const allowedOrigins = process.env.ALLOWED_ORIGINS
@@ -41,8 +51,62 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// CSRF protection middleware
+const { generateToken, doubleCsrfProtection } = doubleCsrf({
+  getSecret: (req) => process.env.CSRF_SECRET || 'csrf-secret-change-in-production',
+  cookieName: 'csrfToken',
+  cookieOptions: {
+    httpOnly: false,
+    secure: process.env.USE_SECURE_COOKIES === 'true',
+    sameSite: 'lax',
+    path: '/'
+  },
+  size: 32,
+  getTokenFromRequest: (req) => req.headers['x-csrf-token']
+});
+
+// Apply CSRF protection to mutation requests
+app.use((req, res, next) => {
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+    doubleCsrfProtection(req, res, next);
+  } else {
+    next();
+  }
+});
+
+// Expose CSRF token generation endpoint
+app.get('/api/csrf-token', generateToken, (req, res) => {
+  res.json({
+    success: true,
+    csrfToken: res.locals.csrfToken
+  });
+});
+
 // Session middleware (must be before routes that use it)
 app.use(authMiddleware.getSessionMiddleware());
+
+// Initialize async dependencies
+async function initializeDependencies() {
+  try {
+    await redisClient.connect();
+    console.log('[Index] Redis client connected');
+
+    await database.initialize();
+    console.log('[Index] Database initialized');
+
+    await tokenManager.initialize();
+    console.log('[Index] TokenManager initialized');
+
+    // Initialize RoomManager with TokenManager
+    roomManager.setTokenManager(tokenManager);
+    console.log('[Index] RoomManager initialized with TokenManager');
+  } catch (error) {
+    console.error('[Index] Failed to initialize dependencies:', error.message);
+    // Continue without JWT features - legacy token support still works
+  }
+}
+
+initializeDependencies();
 
 // Serve static files in development
 app.use(express.static(path.join(__dirname, '../../client')));
@@ -215,8 +279,8 @@ app.post('/api/admin/rooms', authMiddleware.isAuthenticated.bind(authMiddleware)
 });
 
 // Delete room (admin only)
-app.delete('/api/admin/rooms/:roomId', authMiddleware.isAuthenticated.bind(authMiddleware), (req, res) => {
-  const deleted = roomManager.deleteRoom(req.params.roomId);
+app.delete('/api/admin/rooms/:roomId', authMiddleware.isAuthenticated.bind(authMiddleware), async (req, res) => {
+  const deleted = await roomManager.deleteRoom(req.params.roomId);
   if (!deleted) {
     return res.status(404).json({ success: false, error: 'Room not found' });
   }
@@ -269,7 +333,8 @@ app.put('/api/admin/rooms/:roomId/settings', authMiddleware.isAuthenticated.bind
 // =============================================================================
 
 /**
- * Generate token
+ * Generate token (legacy HMAC format or JWT via TokenManager)
+ * When TokenManager is available, generates JWT access + refresh token pair
  */
 app.post('/api/tokens', authMiddleware.isAuthenticated.bind(authMiddleware), async (req, res) => {
   try {
@@ -292,7 +357,59 @@ app.post('/api/tokens', authMiddleware.isAuthenticated.bind(authMiddleware), asy
       }
     }
 
-    // Set expiry based on token type if not specified
+    // Use TokenManager for JWT tokens when available
+    if (tokenManager && ['room_access', 'director_access', 'admin_token'].includes(type)) {
+      // Generate JWT token pair via TokenManager
+      const tokenPair = await tokenManager.generateTokenPair({
+        type,
+        roomId,
+        userId: options.userId || uuidv4(),
+        permissions: options.permissions
+      });
+
+      // Set access and refresh tokens as HttpOnly cookies
+      const cookieOptions = {
+        httpOnly: true,
+        secure: process.env.USE_SECURE_COOKIES === 'true',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 900 * 1000 // 15 minutes (access token expiry)
+      };
+
+      // Access token cookie (short-lived)
+      res.cookie('accessToken', tokenPair.accessToken, cookieOptions);
+
+      // Refresh token cookie (long-lived, managed by TokenManager)
+      res.cookie('refreshToken', tokenPair.tokenId, {
+        httpOnly: true,
+        secure: process.env.USE_SECURE_COOKIES === 'true',
+        sameSite: 'strict',
+        path: '/',
+        maxAge: 24 * 60 * 60 * 1000 // 24 hours
+      });
+
+      // Build shareable URL with access token as query param (for initial join only)
+      const baseUrl = getTokenBaseUrl(type, roomId);
+      const fullUrl = `${req.protocol}://${req.get('host')}${baseUrl}?token=${tokenPair.accessToken}`;
+
+      // Generate QR code if requested
+      let qrCode = null;
+      if (req.body.includeQrCode) {
+        const QRCode = require('qrcode');
+        qrCode = await QRCode.toDataURL(fullUrl);
+      }
+
+      return res.json({
+        success: true,
+        tokenId: tokenPair.tokenId,
+        expiresAt: Date.now() + (tokenPair.expiresIn * 1000),
+        expiresIn: tokenPair.expiresIn,
+        url: fullUrl,
+        qrCode
+      });
+    }
+
+    // Fallback to legacy token generation (for stream_access, action_token)
     const expiryDefaults = {
       room_access: 86400,        // 24 hours
       director_access: 28800,    // 8 hours
@@ -305,13 +422,13 @@ app.post('/api/tokens', authMiddleware.isAuthenticated.bind(authMiddleware), asy
       options.expiresAt = Date.now() + (expiryDefaults[type] * 1000);
     }
 
-    // Generate token
+    // Generate legacy token
     const token = roomManager.generateToken(roomId, type, {
       ...options,
       issuedBy: req.session?.admin?.id || 'api'
     });
 
-    // Build shareable URL (using new HTML5 History API format, not hash)
+    // Build shareable URL
     const baseUrl = getTokenBaseUrl(type, roomId);
     const fullUrl = `${req.protocol}://${req.get('host')}${baseUrl}?token=${token}`;
 
@@ -335,7 +452,84 @@ app.post('/api/tokens', authMiddleware.isAuthenticated.bind(authMiddleware), asy
 });
 
 /**
- * Validate token
+ * Refresh access token using refresh token
+ * POST /api/tokens/refresh
+ */
+app.post('/api/tokens/refresh', doubleCsrfProtection, async (req, res) => {
+  try {
+    // Get refresh token from cookie
+    const refreshTokenId = req.cookies?.refreshToken;
+
+    if (!refreshTokenId) {
+      return res.status(401).json({
+        success: false,
+        error: 'refresh_required',
+        message: 'Refresh token not found'
+      });
+    }
+
+    // Validate refresh token via TokenManager
+    const validation = await tokenManager.validateRefreshToken(refreshTokenId);
+
+    if (!validation.valid) {
+      return res.status(401).json({
+        success: false,
+        error: validation.reason === 'rotated' ? 'token_rotated' : 'refresh_invalid',
+        message: validation.reason === 'rotated'
+          ? 'Refresh token has been rotated (possible token reuse detected)'
+          : 'Refresh token is invalid or expired'
+      });
+    }
+
+    // Rotate refresh token and issue new pair
+    const rotation = await tokenManager.rotateRefreshToken(refreshTokenId);
+
+    if (!rotation.success) {
+      return res.status(401).json({
+        success: false,
+        error: 'rotation_failed',
+        message: 'Failed to rotate refresh token'
+      });
+    }
+
+    // Set new access token cookie
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.USE_SECURE_COOKIES === 'true',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 900 * 1000 // 15 minutes
+    };
+
+    res.cookie('accessToken', rotation.accessToken, cookieOptions);
+
+    // Set new refresh token cookie (rotation)
+    res.cookie('refreshToken', rotation.tokenId, {
+      httpOnly: true,
+      secure: process.env.USE_SECURE_COOKIES === 'true',
+      sameSite: 'strict',
+      path: '/',
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    });
+
+    res.json({
+      success: true,
+      accessToken: rotation.accessToken,
+      refreshToken: rotation.tokenId,
+      expiresIn: 900
+    });
+  } catch (error) {
+    console.error('[API] Token refresh error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'refresh_failed',
+      message: 'Token refresh failed'
+    });
+  }
+});
+
+/**
+ * Validate token (supports both JWT and legacy formats)
  */
 app.post('/api/tokens/validate', async (req, res) => {
   try {
@@ -345,6 +539,28 @@ app.post('/api/tokens/validate', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Token required' });
     }
 
+    // Check if this is a JWT token (starts with eyJ)
+    if (token.startsWith('eyJ')) {
+      // Validate via TokenManager (stateless JWT validation)
+      const result = await tokenManager.validateAccessToken(token);
+
+      if (!result.valid) {
+        return res.json({
+          success: true,
+          valid: false,
+          reason: result.reason,
+          message: getTokenErrorMessage(result.reason)
+        });
+      }
+
+      return res.json({
+        success: true,
+        valid: true,
+        payload: result.payload
+      });
+    }
+
+    // Fallback to legacy token validation
     const result = roomManager.validateToken(token, action);
 
     if (!result.valid) {

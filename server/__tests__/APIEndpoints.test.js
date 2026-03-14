@@ -198,8 +198,8 @@ describe('API Endpoints', () => {
 
     test('should return correct participant count', async () => {
       const room = roomManager.createRoom();
-      roomManager.joinRoom(room.id, { name: 'User 1' });
-      roomManager.joinRoom(room.id, { name: 'User 2' });
+      await roomManager.joinRoom(room.id, { name: 'User 1' });
+      await roomManager.joinRoom(room.id, { name: 'User 2' });
 
       const response = await request(app)
         .get(`/api/rooms/${room.id}`)
@@ -212,8 +212,8 @@ describe('API Endpoints', () => {
   describe('GET /api/rooms/:roomId/participants', () => {
     test('should return participants list', async () => {
       const room = roomManager.createRoom();
-      roomManager.joinRoom(room.id, { name: 'User 1' });
-      roomManager.joinRoom(room.id, { name: 'User 2' });
+      await roomManager.joinRoom(room.id, { name: 'User 1' });
+      await roomManager.joinRoom(room.id, { name: 'User 2' });
 
       const response = await request(app)
         .get(`/api/rooms/${room.id}/participants`)
@@ -248,7 +248,7 @@ describe('API Endpoints', () => {
 
     test('should include participant details', async () => {
       const room = roomManager.createRoom();
-      const { participantId } = roomManager.joinRoom(room.id, { name: 'Test User' });
+      const { participantId } = await roomManager.joinRoom(room.id, { name: 'Test User' });
 
       const response = await request(app)
         .get(`/api/rooms/${room.id}/participants`)

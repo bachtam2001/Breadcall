@@ -48,66 +48,58 @@ describe('RoomManager', () => {
   });
 
   describe('joinRoom', () => {
-    test('should join a room successfully', () => {
+    test('should join a room successfully', async () => {
       const room = roomManager.createRoom();
-      const result = roomManager.joinRoom(room.id, { name: 'Test User' });
+      const result = await roomManager.joinRoom(room.id, { name: 'Test User' });
 
       expect(result.participantId).toBeDefined();
       expect(result.room.id).toBe(room.id);
       expect(result.existingPeers).toHaveLength(0);
     });
 
-    test('should return existing peers when joining', () => {
+    test('should return existing peers when joining', async () => {
       const room = roomManager.createRoom();
 
       // First participant
-      const result1 = roomManager.joinRoom(room.id, { name: 'User 1' });
+      const result1 = await roomManager.joinRoom(room.id, { name: 'User 1' });
 
       // Second participant
-      const result2 = roomManager.joinRoom(room.id, { name: 'User 2' });
+      const result2 = await roomManager.joinRoom(room.id, { name: 'User 2' });
 
       expect(result2.existingPeers).toHaveLength(1);
       expect(result2.existingPeers[0].name).toBe('User 1');
     });
 
-    test('should throw error when room not found', () => {
-      expect(() => {
-        roomManager.joinRoom('INVALID', { name: 'Test' });
-      }).toThrow('Room not found');
+    test('should throw error when room not found', async () => {
+      await expect(roomManager.joinRoom('INVALID', { name: 'Test' })).rejects.toThrow('Room not found');
     });
 
-    test('should throw error when room is full', () => {
+    test('should throw error when room is full', async () => {
       const room = roomManager.createRoom({ maxParticipants: 2 });
 
-      roomManager.joinRoom(room.id, { name: 'User 1' });
-      roomManager.joinRoom(room.id, { name: 'User 2' });
+      await roomManager.joinRoom(room.id, { name: 'User 1' });
+      await roomManager.joinRoom(room.id, { name: 'User 2' });
 
-      expect(() => {
-        roomManager.joinRoom(room.id, { name: 'User 3' });
-      }).toThrow('Room is full');
+      await expect(roomManager.joinRoom(room.id, { name: 'User 3' })).rejects.toThrow('Room is full');
     });
 
-    test('should throw error when password is invalid', () => {
+    test('should throw error when password is invalid', async () => {
       const room = roomManager.createRoom({ password: 'correct' });
 
-      expect(() => {
-        roomManager.joinRoom(room.id, { name: 'Test', password: 'wrong' });
-      }).toThrow('Invalid password');
+      await expect(roomManager.joinRoom(room.id, { name: 'Test', password: 'wrong' })).rejects.toThrow('Invalid password');
     });
 
-    test('should join room with correct password', () => {
+    test('should join room with correct password', async () => {
       const room = roomManager.createRoom({ password: 'correct' });
 
-      expect(() => {
-        roomManager.joinRoom(room.id, { name: 'Test', password: 'correct' });
-      }).not.toThrow();
+      await expect(roomManager.joinRoom(room.id, { name: 'Test', password: 'correct' })).resolves.not.toThrow();
     });
   });
 
   describe('leaveRoom', () => {
-    test('should remove participant from room', () => {
+    test('should remove participant from room', async () => {
       const room = roomManager.createRoom();
-      const { participantId } = roomManager.joinRoom(room.id, { name: 'Test' });
+      const { participantId } = await roomManager.joinRoom(room.id, { name: 'Test' });
 
       const result = roomManager.leaveRoom(room.id, participantId);
 
@@ -120,12 +112,12 @@ describe('RoomManager', () => {
       expect(result).toBe(false);
     });
 
-    test('should start TTL timer when room becomes empty', () => {
+    test('should start TTL timer when room becomes empty', async () => {
       // Create a separate RoomManager with fake timers
       jest.useFakeTimers();
       const testRoomManager = new RoomManager();
       const room = testRoomManager.createRoom();
-      const { participantId } = testRoomManager.joinRoom(room.id, { name: 'Test' });
+      const { participantId } = await testRoomManager.joinRoom(room.id, { name: 'Test' });
 
       testRoomManager.leaveRoom(room.id, participantId);
 
@@ -143,16 +135,16 @@ describe('RoomManager', () => {
   });
 
   describe('deleteRoom', () => {
-    test('should delete a room', () => {
+    test('should delete a room', async () => {
       const room = roomManager.createRoom();
-      const result = roomManager.deleteRoom(room.id);
+      const result = await roomManager.deleteRoom(room.id);
 
       expect(result).toBe(true);
       expect(roomManager.getRoom(room.id)).toBeNull();
     });
 
-    test('should return false when room not found', () => {
-      const result = roomManager.deleteRoom('INVALID');
+    test('should return false when room not found', async () => {
+      const result = await roomManager.deleteRoom('INVALID');
       expect(result).toBe(false);
     });
   });
@@ -173,10 +165,10 @@ describe('RoomManager', () => {
   });
 
   describe('getRoomParticipants', () => {
-    test('should return list of participants', () => {
+    test('should return list of participants', async () => {
       const room = roomManager.createRoom();
-      roomManager.joinRoom(room.id, { name: 'User 1' });
-      roomManager.joinRoom(room.id, { name: 'User 2' });
+      await roomManager.joinRoom(room.id, { name: 'User 1' });
+      await roomManager.joinRoom(room.id, { name: 'User 2' });
 
       const participants = roomManager.getRoomParticipants(room.id);
 
@@ -191,9 +183,9 @@ describe('RoomManager', () => {
   });
 
   describe('updateParticipant', () => {
-    test('should update participant status', () => {
+    test('should update participant status', async () => {
       const room = roomManager.createRoom();
-      const { participantId } = roomManager.joinRoom(room.id, { name: 'Test' });
+      const { participantId } = await roomManager.joinRoom(room.id, { name: 'Test' });
 
       roomManager.updateParticipant(room.id, participantId, {
         isMuted: true,

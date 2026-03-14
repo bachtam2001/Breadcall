@@ -18,6 +18,10 @@ class BreadCallApp {
     this.joinTimeoutId = null; // Track join timeout for cleanup
     this.isJoining = false; // Prevent concurrent join attempts
 
+    // Token refresh management
+    this.refreshTimerId = null; // Track automatic refresh timer
+    this.tokenExpiryTime = null; // Store token expiry timestamp
+
     this.init();
   }
 
@@ -54,6 +58,11 @@ class BreadCallApp {
         this.joinTimeoutId = null;
       }
       this.isJoining = false;
+
+      // Schedule automatic token refresh (tokens stored in HttpOnly cookies)
+      // Set expiry time to 15 minutes from now (matching server access token lifetime)
+      this.tokenExpiryTime = Date.now() + (15 * 60 * 1000);
+      this.scheduleTokenRefresh();
 
       // Navigate to room URL if not already there (redirect after successful join)
       const expectedPath = '/room/' + this.roomId;
@@ -104,6 +113,9 @@ class BreadCallApp {
         }
       }
 
+      // Clear token refresh timer on error
+      this.clearTokenRefreshTimer();
+
       this.uiManager.showToast(message || 'Connection error', 'error');
     });
 
@@ -145,6 +157,115 @@ class BreadCallApp {
       this.webrtcConfig = null;
       return false;
     }
+  }
+
+  /**
+   * Fetch CSRF token from server
+   * @returns {Promise<string>} CSRF token
+   */
+  async fetchCsrfToken() {
+    try {
+      const response = await fetch('/api/csrf-token', {
+        credentials: 'include' // Include cookies for session
+      });
+      const data = await response.json();
+      if (data.success && data.csrfToken) {
+        return data.csrfToken;
+      }
+      throw new Error('Failed to fetch CSRF token');
+    } catch (error) {
+      console.error('[BreadCallApp] CSRF token fetch failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Refresh access and refresh tokens
+   * Uses double-submit CSRF protection pattern
+   * @returns {Promise<Object>} Refresh result with new tokens
+   */
+  async refreshTokens() {
+    try {
+      // Fetch fresh CSRF token
+      const csrfToken = await this.fetchCsrfToken();
+
+      // Call refresh endpoint with CSRF token in header
+      const response = await fetch('/api/tokens/refresh', {
+        method: 'POST',
+        credentials: 'include', // Include cookies (refresh token)
+        headers: {
+          'Content-Type': 'application/json',
+          'x-csrf-token': csrfToken // Double-submit pattern
+        }
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || 'Token refresh failed');
+      }
+
+      // Update token expiry time (access token expires in 15 minutes)
+      this.tokenExpiryTime = Date.now() + (data.expiresIn * 1000);
+
+      // Schedule next refresh (1 minute before expiry)
+      this.scheduleTokenRefresh();
+
+      console.log('[BreadCallApp] Tokens refreshed successfully');
+      return data;
+    } catch (error) {
+      console.error('[BreadCallApp] Token refresh failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Schedule automatic token refresh
+   * Refreshes 1 minute before token expiry
+   */
+  scheduleTokenRefresh() {
+    // Clear any existing timer
+    if (this.refreshTimerId) {
+      clearTimeout(this.refreshTimerId);
+    }
+
+    if (!this.tokenExpiryTime) {
+      console.warn('[BreadCallApp] No token expiry time set, skipping refresh schedule');
+      return;
+    }
+
+    // Calculate time until 1 minute before expiry
+    const timeUntilRefresh = this.tokenExpiryTime - Date.now() - 60000; // 60 seconds buffer
+
+    if (timeUntilRefresh <= 0) {
+      console.warn('[BreadCallApp] Token already expired or expires soon, attempting immediate refresh');
+      this.refreshTokens().catch(() => {
+        console.error('[BreadCallApp] Immediate refresh failed');
+      });
+      return;
+    }
+
+    console.log(`[BreadCallApp] Scheduling token refresh in ${Math.round(timeUntilRefresh / 1000)}s`);
+
+    this.refreshTimerId = setTimeout(() => {
+      this.refreshTokens().catch((error) => {
+        console.error('[BreadCallApp] Scheduled refresh failed:', error.message);
+        // Handle refresh failure - show warning to user
+        this.uiManager.showToast('Session expired, please rejoin', 'warning');
+      });
+    }, timeUntilRefresh);
+  }
+
+  /**
+   * Clear token refresh timer
+   * Called when leaving room or on error
+   */
+  clearTokenRefreshTimer() {
+    if (this.refreshTimerId) {
+      clearTimeout(this.refreshTimerId);
+      this.refreshTimerId = null;
+    }
+    this.tokenExpiryTime = null;
   }
 
   setupMediaHandlers() {
@@ -430,6 +551,9 @@ class BreadCallApp {
     }
     this.isJoining = false;
 
+    // Clear token refresh timer
+    this.clearTokenRefreshTimer();
+
     if (this.signaling) {
       this.signaling.send('leave-room');
       this.signaling.disconnect();
@@ -525,3 +649,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   window.app = new BreadCallApp();
 });
+
+// Export for testing
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = BreadCallApp;
+}
