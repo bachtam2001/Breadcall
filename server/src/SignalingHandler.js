@@ -253,7 +253,7 @@ class SignalingHandler {
    * @param {Object} payload
    */
   handleJoinRoom(ws, payload) {
-    const { roomId, name, password } = payload || {};
+    const { roomId, name, password, autoGenerateToken } = payload || {};
 
     if (!roomId) {
       this.sendError(ws, 'Room ID is required');
@@ -271,7 +271,7 @@ class SignalingHandler {
         name: name ? sanitizeInput(name.substring(0, 50)) : undefined,
         password,
         ws
-      });
+      }, autoGenerateToken === true);
 
       // Store connection mapping
       this.wsMap.set(ws, {
@@ -284,7 +284,8 @@ class SignalingHandler {
         type: 'joined-room',
         participantId: result.participantId,
         room: result.room,
-        existingPeers: result.existingPeers
+        existingPeers: result.existingPeers,
+        token: result.token || null
       });
 
       // Notify existing participants about new peer (excluding directors)

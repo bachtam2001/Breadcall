@@ -230,20 +230,61 @@ class BreadCallApp {
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get('token');
 
-    // Handle token-based routes
+    // Handle token-based routes (explicit token in URL takes priority)
     if (token) {
       this.handleTokenBasedRoute(path, token);
       return;
     }
 
     if (!path || path === '/' || path === '') {
+      // Check if we have a stored token for auto-rejoin to a previous room
+      const lastRoomId = localStorage.getItem('breadcall_last_room');
+      if (lastRoomId) {
+        const storageKey = `breadcall_token_${lastRoomId}`;
+        const storedToken = localStorage.getItem(storageKey);
+        if (storedToken) {
+          // Validate stored token and auto-join if valid
+          this.validateAndJoinWithStoredToken(lastRoomId, storedToken);
+          return;
+        }
+      }
       this.uiManager.renderLanding();
     } else if (path.startsWith('/room/')) {
       this.roomId = path.split('/')[2]?.toUpperCase();
-      this.uiManager.renderRoom(this.roomId);
-      this.joinRoom(this.roomId);
+      // Check for stored token for this room
+      const storageKey = `breadcall_token_${this.roomId}`;
+      const storedToken = localStorage.getItem(storageKey);
+      if (storedToken) {
+        // Validate stored token and auto-join if valid
+        this.validateAndJoinWithStoredToken(this.roomId, storedToken);
+      } else {
+        this.uiManager.renderRoom(this.roomId);
+        this.joinRoom(this.roomId);
+      }
     }
     // SoloView and DirectorView now self-initialize based on path in their respective files
+  }
+
+  async validateAndJoinWithStoredToken(roomId, token) {
+    try {
+      const validation = await this.signaling.validateToken(token, 'join');
+      if (validation.valid) {
+        console.log('[BreadCallApp] Using stored token for room', roomId);
+        this.roomId = roomId;
+        this.uiManager.renderRoom(this.roomId);
+        await this.joinRoomWithToken(this.roomId, token);
+      } else {
+        console.log('[BreadCallApp] Stored token invalid, using normal join:', validation.reason);
+        localStorage.removeItem(`breadcall_token_${roomId}`);
+        this.uiManager.renderRoom(roomId);
+        this.joinRoom(roomId);
+      }
+    } catch (error) {
+      console.error('[BreadCallApp] Token validation failed:', error);
+      localStorage.removeItem(`breadcall_token_${roomId}`);
+      this.uiManager.renderRoom(roomId);
+      this.joinRoom(roomId);
+    }
   }
 
   async handleTokenBasedRoute(path, token) {
@@ -323,7 +364,7 @@ class BreadCallApp {
     console.warn('[BreadCallApp] Room creation attempted from public page - rejected');
   }
 
-  async joinRoom(roomId, name = 'User', password = '') {
+  async joinRoom(roomId, name = 'User', password = '', autoGenerateToken = true) {
     // Prevent multiple concurrent join attempts
     if (this.isJoining) {
       console.log('[BreadCallApp] Already joining, ignoring duplicate request');
@@ -354,14 +395,28 @@ class BreadCallApp {
     if (!this.signaling.isConnected()) {
       // Wait for connection before sending join-room to prevent race condition
       const onConnected = () => {
-        this.signaling.send('join-room', { roomId, name, password });
+        this.signaling.send('join-room', { roomId, name, password, autoGenerateToken: true });
       };
 
       this.signaling.addEventListener('connected', onConnected, { once: true });
       this.signaling.connect(wsUrl);
     } else {
-      this.signaling.send('join-room', { roomId, name, password });
+      this.signaling.send('join-room', { roomId, name, password, autoGenerateToken: true });
     }
+
+    // Set up handler to capture and store auto-generated token
+    const onJoinedRoom = (e) => {
+      const { token } = e.detail;
+      if (token) {
+        // Store token in localStorage for auto-rejoin
+        const storageKey = `breadcall_token_${roomId.toUpperCase()}`;
+        localStorage.setItem(storageKey, token);
+        console.log('[BreadCallApp] Auto-generated token stored for room', roomId);
+        this.uiManager.showToast('Token saved - you will stay signed in for 24 hours', 'success');
+      }
+      this.signaling.removeEventListener('joined-room', onJoinedRoom);
+    };
+    this.signaling.addEventListener('joined-room', onJoinedRoom, { once: true });
 
     // Try to get media, but don't block joining if it fails
     this.mediaManager.getUserMedia()
