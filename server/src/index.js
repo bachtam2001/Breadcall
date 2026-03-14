@@ -47,35 +47,6 @@ app.use(authMiddleware.getSessionMiddleware());
 // Serve static files in development
 app.use(express.static(path.join(__dirname, '../../client')));
 
-// SPA catch-all route - serve index.html for unknown paths
-// This enables HTML5 History API routing (clean URLs without #)
-app.get('{*path}', (req, res, next) => {
-  const path = req.path;
-
-  // Skip API routes, static files, admin, and files with extensions
-  if (path.startsWith('/api/') ||
-      path.startsWith('/css/') ||
-      path.startsWith('/js/') ||
-      path.startsWith('/admin') ||
-      path.includes('.') ||
-      path.startsWith('/view/')) {  // MediaMTX proxy paths
-    return next();
-  }
-
-  // Serve index.html for SPA routes
-  res.sendFile(path.join(__dirname, '../../public/index.html'));
-});
-
-// Create HTTP server
-const server = http.createServer(app);
-
-// Create WebSocket server
-const wss = new WebSocket.Server({ server, path: '/ws' });
-
-// Initialize managers
-const roomManager = new RoomManager();
-const signalingHandler = new SignalingHandler(roomManager, wss);
-
 // REST API Routes
 
 // Health check
@@ -429,10 +400,39 @@ function getTokenErrorMessage(reason) {
   return messages[reason] || 'Invalid or expired token';
 }
 
+// SPA catch-all route - serve index.html for unknown paths
+// This enables HTML5 History API routing (clean URLs without #)
+app.get('{*path}', (req, res, next) => {
+  const reqPath = req.path;
+
+  // Skip API routes, static files, admin, and files with extensions
+  if (reqPath.startsWith('/api/') ||
+      reqPath.startsWith('/css/') ||
+      reqPath.startsWith('/js/') ||
+      reqPath.startsWith('/admin') ||
+      reqPath.includes('.') ||
+      reqPath.startsWith('/view/')) {  // MediaMTX proxy paths
+    return next();
+  }
+
+  // Serve index.html for SPA routes
+  res.sendFile(path.join(__dirname, '../../public/index.html'));
+});
+
 // Allowed origins for WebSocket connections
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',')
   : ['http://localhost', 'http://localhost:80', 'http://localhost:3000', 'http://localhost:8080', 'https://localhost'];
+
+// Create HTTP server
+const server = http.createServer(app);
+
+// Create WebSocket server
+const wss = new WebSocket.Server({ server, path: '/ws' });
+
+// Initialize managers
+const roomManager = new RoomManager();
+const signalingHandler = new SignalingHandler(roomManager, wss);
 
 // Handle WebSocket connections
 wss.on('connection', (ws, req) => {

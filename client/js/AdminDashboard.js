@@ -435,6 +435,7 @@ class AdminDashboard {
                 '<option value="all">All Status</option>' +
                 '<option value="active">Active</option>' +
                 '<option value="expired">Expired</option>' +
+                '<option value="revoked">Revoked</option>' +
               '</select>' +
             '</div>' +
             '<div id="tokens-table-container" style="overflow-x: auto;">' +
@@ -1033,8 +1034,10 @@ class AdminDashboard {
       if (filterType !== 'all' && token.type !== filterType) return false;
       if (filterStatus !== 'all') {
         var isExpired = token.expiresAt && token.expiresAt < Date.now();
+        var isRevoked = token.revoked === true;
         if (filterStatus === 'expired' && !isExpired) return false;
-        if (filterStatus === 'active' && isExpired) return false;
+        if (filterStatus === 'active' && (isExpired || isRevoked)) return false;
+        if (filterStatus === 'revoked' && !isRevoked) return false;
       }
       return true;
     });
@@ -1049,8 +1052,10 @@ class AdminDashboard {
     for (var i = 0; i < filtered.length; i++) {
       var token = filtered[i];
       var isExpired = token.expiresAt && token.expiresAt < Date.now();
-      var status = isExpired ? 'Expired' : 'Active';
-      var statusClass = isExpired ? 'expired' : 'active';
+      var isRevoked = token.revoked === true;
+      var status = isRevoked ? 'Revoked' : (isExpired ? 'Expired' : 'Active');
+      var statusClass = isRevoked ? 'revoked' : (isExpired ? 'expired' : 'active');
+      var statusColor = isRevoked ? 'var(--color-danger)' : (isExpired ? 'var(--color-text-secondary)' : 'var(--color-success)');
       var usesDisplay = token.maxUses ? token.usedCount + '/' + token.maxUses : token.usedCount + ' (unlimited)';
 
       html +=
@@ -1059,10 +1064,10 @@ class AdminDashboard {
           '<td style="padding: var(--space-md);">' + new Date(token.createdAt).toLocaleString() + '</td>' +
           '<td style="padding: var(--space-md);">' + (token.expiresAt ? new Date(token.expiresAt).toLocaleString() : 'Never') + '</td>' +
           '<td style="padding: var(--space-md);">' + usesDisplay + '</td>' +
-          '<td style="padding: var(--space-md);"><span class="status-badge ' + statusClass + '" style="color: ' + (isExpired ? 'var(--color-text-secondary)' : 'var(--color-success)') + ';">' + status + '</span></td>' +
+          '<td style="padding: var(--space-md);"><span class="status-badge ' + statusClass + '" style="color: ' + statusColor + ';">' + status + '</span></td>' +
           '<td style="padding: var(--space-md);">' +
-            '<button class="btn btn-sm btn-secondary copy-token-url-btn" data-token-id="' + token.tokenId + '" data-room-id="' + roomId + '" data-token-type="' + token.type + '">Copy URL</button>' +
-            '<button class="btn btn-sm btn-danger revoke-btn" data-token-id="' + token.tokenId + '"' + (isExpired ? ' disabled' : '') + '>' + (isExpired ? 'Expired' : 'Revoke') + '</button>' +
+            '<button class="btn btn-sm btn-secondary copy-token-url-btn" data-token-id="' + token.tokenId + '" data-room-id="' + self.currentManageTokensRoomId + '" data-token-type="' + token.type + '"' + (isRevoked ? ' disabled' : '') + '>' + (isRevoked ? 'Revoked' : 'Copy URL') + '</button>' +
+            '<button class="btn btn-sm btn-danger revoke-btn" data-token-id="' + token.tokenId + '"' + (isExpired || isRevoked ? ' disabled' : '') + '>' + (isRevoked ? 'Revoked' : (isExpired ? 'Expired' : 'Revoke')) + '</button>' +
           '</td>' +
         '</tr>';
     }
