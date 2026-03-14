@@ -363,9 +363,11 @@ class AdminDashboard {
               '<div class="form-group">' +
                 '<label for="token-type">Token Type</label>' +
                 '<select id="token-type">' +
-                  '<option value="room_access">Participant Access (Join Room)</option>' +
-                  '<option value="director_access">Director Access (Dashboard)</option>' +
-                  '<option value="stream_access">Stream View (OBS Browser Source)</option>' +
+                  '<option value="room_access">Participant Access (Join Room) - 24h default</option>' +
+                  '<option value="director_access">Director Access (Dashboard) - 8h default</option>' +
+                  '<option value="stream_access">Stream View (OBS Browser Source) - 1h default</option>' +
+                  '<option value="action_token">One-time Action - 5min default</option>' +
+                  '<option value="admin_token">Admin Panel Access - 1h default</option>' +
                 '</select>' +
               '</div>' +
               '<div class="form-group">' +
@@ -402,16 +404,59 @@ class AdminDashboard {
               '<div style="display: flex; gap: var(--space-md);">' +
                 '<button class="btn btn-primary" id="copy-token-url-btn">Copy URL</button>' +
                 '<button class="btn btn-secondary" id="copy-token-string-btn">Copy Token</button>' +
-                '<button class="btn btn-secondary" id="download-qr-btn">Download QR Code</button>' +
-              '</div>' +
-              '<div id="token-qr-container" style="margin-top: var(--space-lg); text-align: center; display: none;">' +
-                '<img id="token-qr-image" alt="QR Code" style="max-width: 200px;">' +
               '</div>' +
             '</div>' +
           '</div>' +
           '<div class="modal-footer">' +
             '<button class="btn btn-secondary" id="cancel-token-btn">Close</button>' +
             '<button class="btn btn-primary" id="generate-token-btn">Generate Token</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      // Manage Tokens Modal
+      '<div class="modal-overlay" id="manage-tokens-modal">' +
+        '<div class="modal modal-large">' +
+          '<div class="modal-header">' +
+            '<h3>Manage Room Tokens</h3>' +
+            '<button class="modal-close" id="close-tokens-modal">&times;</button>' +
+          '</div>' +
+          '<div class="modal-body">' +
+            '<div class="token-filters" style="display: flex; gap: var(--space-md); margin-bottom: var(--space-lg);">' +
+              '<select id="token-filter-type" style="flex: 1; padding: var(--space-sm); border: 1px solid var(--color-border); border-radius: 4px;">' +
+                '<option value="all">All Types</option>' +
+                '<option value="room_access">Room Access</option>' +
+                '<option value="director_access">Director Access</option>' +
+                '<option value="stream_access">Stream Access</option>' +
+                '<option value="action_token">Action Token</option>' +
+                '<option value="admin_token">Admin Token</option>' +
+              '</select>' +
+              '<select id="token-filter-status" style="flex: 1; padding: var(--space-sm); border: 1px solid var(--color-border); border-radius: 4px;">' +
+                '<option value="all">All Status</option>' +
+                '<option value="active">Active</option>' +
+                '<option value="expired">Expired</option>' +
+              '</select>' +
+            '</div>' +
+            '<div id="tokens-table-container" style="overflow-x: auto;">' +
+              '<table class="tokens-table" style="width: 100%; border-collapse: collapse;">' +
+                '<thead style="background: var(--color-bg-secondary);">' +
+                  '<tr>' +
+                    '<th style="padding: var(--space-md); text-align: left; border-bottom: 2px solid var(--color-border);">Type</th>' +
+                    '<th style="padding: var(--space-md); text-align: left; border-bottom: 2px solid var(--color-border);">Created</th>' +
+                    '<th style="padding: var(--space-md); text-align: left; border-bottom: 2px solid var(--color-border);">Expires</th>' +
+                    '<th style="padding: var(--space-md); text-align: left; border-bottom: 2px solid var(--color-border);">Uses</th>' +
+                    '<th style="padding: var(--space-md); text-align: left; border-bottom: 2px solid var(--color-border);">Status</th>' +
+                    '<th style="padding: var(--space-md); text-align: left; border-bottom: 2px solid var(--color-border);">Actions</th>' +
+                  '</tr>' +
+                '</thead>' +
+                '<tbody id="tokens-table-body">' +
+                  '<tr><td colspan="6" style="padding: var(--space-lg); text-align: center; color: var(--color-text-secondary);">Loading...</td></tr>' +
+                '</tbody>' +
+              '</table>' +
+            '</div>' +
+          '</div>' +
+          '<div class="modal-footer">' +
+            '<button class="btn btn-secondary" id="close-tokens-btn">Close</button>' +
           '</div>' +
         '</div>' +
       '</div>' +
@@ -466,6 +511,7 @@ class AdminDashboard {
           '<div class="room-card-actions">' +
             '<button class="btn btn-secondary btn-sm view-participants-btn" data-room-id="' + room.id + '">View Participants</button>' +
             '<button class="btn btn-secondary btn-sm settings-btn" data-room-id="' + room.id + '">Settings</button>' +
+            '<button class="btn btn-secondary btn-sm manage-tokens-btn" data-room-id="' + room.id + '">Manage Tokens</button>' +
           '</div>' +
           '<div class="room-card-actions" style="margin-top: var(--space-sm);">' +
             '<button class="btn btn-accent btn-sm copy-link-btn" data-room-id="' + room.id + '" data-room-password="' + (room.password || '') + '">Copy Link</button>' +
@@ -571,9 +617,30 @@ class AdminDashboard {
       self.copyTokenString();
     });
 
-    var downloadQrBtn = document.getElementById('download-qr-btn');
-    if (downloadQrBtn) downloadQrBtn.addEventListener('click', function() {
-      self.downloadQrCode();
+    // Manage tokens modal
+    var closeTokensModal = document.getElementById('close-tokens-modal');
+    if (closeTokensModal) closeTokensModal.addEventListener('click', function() {
+      document.getElementById('manage-tokens-modal').classList.remove('active');
+    });
+
+    var closeTokensBtn = document.getElementById('close-tokens-btn');
+    if (closeTokensBtn) closeTokensBtn.addEventListener('click', function() {
+      document.getElementById('manage-tokens-modal').classList.remove('active');
+    });
+
+    // Token filters
+    var filterType = document.getElementById('token-filter-type');
+    if (filterType) filterType.addEventListener('change', function() {
+      if (self.currentManageTokensRoomId) {
+        self.loadRoomTokens(self.currentManageTokensRoomId);
+      }
+    });
+
+    var filterStatus = document.getElementById('token-filter-status');
+    if (filterStatus) filterStatus.addEventListener('change', function() {
+      if (self.currentManageTokensRoomId) {
+        self.loadRoomTokens(self.currentManageTokensRoomId);
+      }
     });
   }
 
@@ -633,6 +700,15 @@ class AdminDashboard {
         e.stopPropagation();
         var roomId = e.target.dataset.roomId;
         self.showGenerateTokenModal(roomId);
+      });
+    });
+
+    // Manage tokens button
+    document.querySelectorAll('.manage-tokens-btn').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var roomId = e.target.dataset.roomId;
+        self.showManageTokensModal(roomId);
       });
     });
   }
@@ -844,15 +920,6 @@ class AdminDashboard {
         // Show result area
         document.getElementById('token-result').style.display = 'block';
 
-        // Show QR code if available
-        var qrContainer = document.getElementById('token-qr-container');
-        if (data.qrCode) {
-          document.getElementById('token-qr-image').src = data.qrCode;
-          qrContainer.style.display = 'block';
-        } else {
-          qrContainer.style.display = 'none';
-        }
-
         self.showToast('Token generated successfully', 'success');
       } else {
         self.showToast(data.error || 'Failed to generate token', 'error');
@@ -889,57 +956,189 @@ class AdminDashboard {
     });
   }
 
-  downloadQrCode() {
-    var qrImage = document.getElementById('token-qr-image');
-    var qrContainer = document.getElementById('token-qr-container');
-
-    if (qrImage && qrImage.src && qrContainer.style.display !== 'none') {
-      // Create a temporary link and trigger download
-      var link = document.createElement('a');
-      link.href = qrImage.src;
-      link.download = 'token-qrcode.png';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      this.showToast('QR code downloaded', 'success');
-    } else {
-      this.showToast('QR code not available', 'warning');
-    }
-  }
-
   // =============================================================================
   // Utilities
   // =============================================================================
 
   /**
-   * Copy room join link to clipboard
+   * Copy room join link to clipboard (generates token)
    */
-  copyRoomLink(roomId, password) {
-    var baseUrl = window.location.origin;
-    var link = baseUrl + '/?room=' + roomId;
-    if (password) {
-      link += '&password=' + password;
+  async copyRoomLink(roomId, password) {
+    var self = this;
+
+    try {
+      // Generate token for room access (8 hour expiry)
+      var response = await fetch('/api/tokens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'room_access',
+          roomId: roomId,
+          options: { expiresAt: Date.now() + (8 * 3600 * 1000) }
+        })
+      });
+
+      var data = await response.json();
+
+      if (data.success) {
+        navigator.clipboard.writeText(data.url).then(function() {
+          self.showToast('Token link copied! (expires in 8 hours)', 'success');
+        }).catch(function(err) {
+          self.showToast('Failed to copy link', 'error');
+        });
+      } else {
+        self.showToast(data.error || 'Failed to generate token', 'error');
+      }
+    } catch (error) {
+      console.error('[AdminDashboard] Copy link failed:', error);
+      self.showToast('Connection error', 'error');
+    }
+  }
+
+  // =============================================================================
+  // Token Management
+  // =============================================================================
+
+  showManageTokensModal(roomId) {
+    this.currentManageTokensRoomId = roomId;
+    document.getElementById('manage-tokens-modal').classList.add('active');
+    this.loadRoomTokens(roomId);
+  }
+
+  async loadRoomTokens(roomId) {
+    try {
+      var response = await fetch('/api/admin/rooms/' + roomId + '/tokens');
+      var data = await response.json();
+
+      if (data.success) {
+        this.renderTokensTable(data.tokens || []);
+      } else {
+        document.getElementById('tokens-table-body').innerHTML =
+          '<tr><td colspan="6" style="padding: var(--space-lg); text-align: center; color: var(--color-text-secondary);">Failed to load tokens</td></tr>';
+      }
+    } catch (error) {
+      console.error('[AdminDashboard] Failed to load tokens:', error);
+      document.getElementById('tokens-table-body').innerHTML =
+        '<tr><td colspan="6" style="padding: var(--space-lg); text-align: center; color: var(--color-text-secondary);">Connection error</td></tr>';
+    }
+  }
+
+  renderTokensTable(tokens) {
+    var filterType = document.getElementById('token-filter-type').value;
+    var filterStatus = document.getElementById('token-filter-status').value;
+    var self = this;
+
+    // Filter tokens
+    var filtered = tokens.filter(function(token) {
+      if (filterType !== 'all' && token.type !== filterType) return false;
+      if (filterStatus !== 'all') {
+        var isExpired = token.expiresAt && token.expiresAt < Date.now();
+        if (filterStatus === 'expired' && !isExpired) return false;
+        if (filterStatus === 'active' && isExpired) return false;
+      }
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      document.getElementById('tokens-table-body').innerHTML =
+        '<tr><td colspan="6" style="padding: var(--space-lg); text-align: center; color: var(--color-text-secondary);">No tokens found</td></tr>';
+      return;
     }
 
-    var self = this;
-    navigator.clipboard.writeText(link).then(function() {
-      self.showToast('Link copied to clipboard', 'success');
-    }).catch(function(err) {
-      // Fallback for older browsers
-      var textArea = document.createElement('textarea');
-      textArea.value = link;
-      textArea.style.position = 'fixed';
-      textArea.style.left = '-999999px';
-      document.body.appendChild(textArea);
-      textArea.select();
-      try {
-        document.execCommand('copy');
-        self.showToast('Link copied to clipboard', 'success');
-      } catch (err) {
-        self.showToast('Failed to copy link', 'error');
-      }
-      document.body.removeChild(textArea);
+    var html = '';
+    for (var i = 0; i < filtered.length; i++) {
+      var token = filtered[i];
+      var isExpired = token.expiresAt && token.expiresAt < Date.now();
+      var status = isExpired ? 'Expired' : 'Active';
+      var statusClass = isExpired ? 'expired' : 'active';
+      var usesDisplay = token.maxUses ? token.usedCount + '/' + token.maxUses : token.usedCount + ' (unlimited)';
+
+      html +=
+        '<tr style="border-bottom: 1px solid var(--color-border);">' +
+          '<td style="padding: var(--space-md);"><span class="token-type-badge" style="background: var(--color-bg-secondary); padding: 2px 8px; border-radius: 4px; font-size: 12px;">' + token.type + '</span></td>' +
+          '<td style="padding: var(--space-md);">' + new Date(token.createdAt).toLocaleString() + '</td>' +
+          '<td style="padding: var(--space-md);">' + (token.expiresAt ? new Date(token.expiresAt).toLocaleString() : 'Never') + '</td>' +
+          '<td style="padding: var(--space-md);">' + usesDisplay + '</td>' +
+          '<td style="padding: var(--space-md);"><span class="status-badge ' + statusClass + '" style="color: ' + (isExpired ? 'var(--color-text-secondary)' : 'var(--color-success)') + ';">' + status + '</span></td>' +
+          '<td style="padding: var(--space-md);">' +
+            '<button class="btn btn-sm btn-secondary copy-token-url-btn" data-token-id="' + token.tokenId + '" data-room-id="' + roomId + '" data-token-type="' + token.type + '">Copy URL</button>' +
+            '<button class="btn btn-sm btn-danger revoke-btn" data-token-id="' + token.tokenId + '"' + (isExpired ? ' disabled' : '') + '>' + (isExpired ? 'Expired' : 'Revoke') + '</button>' +
+          '</td>' +
+        '</tr>';
+    }
+
+    document.getElementById('tokens-table-body').innerHTML = html;
+
+    // Bind copy URL buttons
+    document.querySelectorAll('.copy-token-url-btn').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        var tokenId = e.target.dataset.tokenId;
+        var roomId = e.target.dataset.roomId;
+        var tokenType = e.target.dataset.tokenType;
+        self.copyTokenUrlFromList(roomId, tokenId, tokenType);
+      });
     });
+
+    // Bind revoke buttons
+    document.querySelectorAll('.revoke-btn').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        var tokenId = e.target.dataset.tokenId;
+        if (confirm('Are you sure you want to revoke this token? It will no longer work.')) {
+          self.revokeToken(tokenId);
+        }
+      });
+    });
+  }
+
+  async copyTokenUrlFromList(roomId, tokenId, tokenType) {
+    var self = this;
+
+    // Generate new token for copying
+    try {
+      var response = await fetch('/api/tokens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: tokenType,
+          roomId: roomId,
+          options: { expiresAt: Date.now() + (8 * 3600 * 1000) }
+        })
+      });
+
+      var data = await response.json();
+      if (data.success) {
+        navigator.clipboard.writeText(data.url).then(function() {
+          self.showToast('Token URL copied!', 'success');
+        }).catch(function() {
+          self.showToast('Failed to copy URL', 'error');
+        });
+      }
+    } catch (error) {
+      self.showToast('Connection error', 'error');
+    }
+  }
+
+  async revokeToken(tokenId) {
+    var self = this;
+    try {
+      var response = await fetch('/api/tokens/' + tokenId, {
+        method: 'DELETE'
+      });
+
+      var data = await response.json();
+      if (data.success) {
+        self.showToast('Token revoked', 'success');
+        // Reload tokens if managing tokens
+        if (this.currentManageTokensRoomId) {
+          this.loadRoomTokens(this.currentManageTokensRoomId);
+        }
+      } else {
+        self.showToast(data.error || 'Failed to revoke token', 'error');
+      }
+    } catch (error) {
+      console.error('[AdminDashboard] Revoke failed:', error);
+      self.showToast('Connection error', 'error');
+    }
   }
 
   /**
