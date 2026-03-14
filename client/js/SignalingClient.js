@@ -161,6 +161,94 @@ class SignalingClient extends EventTarget {
   isConnected() {
     return this.ws && this.ws.readyState === WebSocket.OPEN;
   }
+
+  /**
+   * Validate a token with the server
+   * @param {string} token - Token string to validate
+   * @param {string} action - Action being performed (optional)
+   * @returns {Promise<Object>} Validation result
+   */
+  async validateToken(token, action = null) {
+    try {
+      const response = await fetch('/api/tokens/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, action })
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || 'Validation failed');
+      }
+
+      return data;
+    } catch (error) {
+      console.error('[SignalingClient] Token validation failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Join room with token authentication
+   * @param {string} roomId - Room ID
+   * @param {string} token - Token string
+   * @param {string} name - User name
+   * @returns {Promise<Object>} Join result
+   */
+  async joinRoomWithToken(roomId, token, name = 'User') {
+    // First validate token
+    const validation = await this.validateToken(token, 'join');
+
+    if (!validation.valid) {
+      throw new Error(validation.message || 'Invalid token');
+    }
+
+    // Extract pre-registered name from token if available
+    const useName = validation.payload.metadata?.name || name;
+
+    // Connect to WebSocket
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+
+    return new Promise((resolve, reject) => {
+      const onConnected = () => {
+        this.removeEventListener('connected', onConnected);
+
+        // Send join with token
+        this.send('join-room-with-token', {
+          roomId,
+          token,
+          name: useName
+        });
+      };
+
+      const onResponse = (e) => {
+        if (e.detail.type === 'joined-room') {
+          this.removeEventListener('joined-room', onResponse);
+          this.removeEventListener('error', onError);
+          resolve(e.detail);
+        }
+      };
+
+      const onError = (e) => {
+        this.removeEventListener('connected', onConnected);
+        this.removeEventListener('joined-room', onResponse);
+        this.removeEventListener('error', onError);
+        reject(new Error(e.detail.message));
+      };
+
+      this.addEventListener('connected', onConnected, { once: true });
+      this.addEventListener('joined-room', onResponse, { once: true });
+      this.addEventListener('error', onError, { once: true });
+
+      if (!this.isConnected()) {
+        this.connect(wsUrl);
+      } else {
+        onConnected();
+      }
+    });
+  }
 }
 
 // Export for use

@@ -35,6 +35,24 @@ function isValidMessage(message) {
   return typeof message === 'string' && message.length > 0 && message.length <= 1000;
 }
 
+/**
+ * Get error message for token validation failure
+ * @param {string} reason - Error reason
+ * @returns {string} Error message
+ */
+function getTokenErrorMessage(reason) {
+  const messages = {
+    expired: 'This invite link has expired',
+    max_uses_reached: 'This invite link has reached its usage limit',
+    not_found: 'The room for this token no longer exists',
+    invalid_format: 'Invalid token format',
+    invalid_signature: 'Token signature verification failed',
+    revoked: 'This token has been revoked',
+    permission_denied: 'This token does not have permission for that action'
+  };
+  return messages[reason] || 'Invalid or expired token';
+}
+
 class SignalingHandler {
   constructor(roomManager, wss) {
     this.roomManager = roomManager;
@@ -83,6 +101,10 @@ class SignalingHandler {
 
       case 'join-room':
         this.handleJoinRoom(ws, payload);
+        break;
+
+      case 'join-room-with-token':
+        this.handleJoinRoomWithToken(ws, payload);
         break;
 
       case 'join-room-director':
@@ -282,6 +304,78 @@ class SignalingHandler {
       });
 
       console.log(`[Signaling] Participant ${result.participantId} joined room ${roomId}`);
+    } catch (error) {
+      this.sendError(ws, error.message);
+    }
+  }
+
+  /**
+   * Handle join-room-with-token message
+   * @param {WebSocket} ws
+   * @param {Object} payload
+   */
+  async handleJoinRoomWithToken(ws, payload) {
+    const { roomId, token, name } = payload || {};
+
+    if (!roomId || !token) {
+      this.sendError(ws, 'Room ID and token are required');
+      return;
+    }
+
+    // Validate token
+    const validation = this.roomManager.validateToken(token, 'join');
+
+    if (!validation.valid) {
+      this.sendError(ws, getTokenErrorMessage(validation.reason));
+      return;
+    }
+
+    // Extract info from token
+    const { metadata } = validation.payload;
+
+    try {
+      // Join room with token-authenticated user
+      const result = this.roomManager.joinRoom(roomId, {
+        name: metadata?.name || name || 'Authenticated User',
+        ws
+      });
+
+      // Store connection mapping with token info
+      this.wsMap.set(ws, {
+        participantId: result.participantId,
+        roomId: result.roomId,
+        token: token,
+        authenticated: true
+      });
+
+      // Send success
+      this.send(ws, {
+        type: 'joined-room',
+        participantId: result.participantId,
+        room: result.room,
+        existingPeers: result.existingPeers,
+        authenticated: true
+      });
+
+      // Notify room
+      this.broadcastToRoom(roomId, {
+        type: 'participant-joined',
+        participantId: result.participantId,
+        streamName: `${roomId}_${result.participantId}`,
+        name: metadata?.name || name || 'Authenticated User',
+        authenticated: true
+      });
+
+      // Notify directors about new participant
+      this.roomManager.notifyDirectors(roomId, {
+        type: 'participant-joined',
+        participantId: result.participantId,
+        streamName: `${roomId}_${result.participantId}`,
+        name: metadata?.name || name || 'Authenticated User',
+        authenticated: true
+      });
+
+      console.log(`[Signaling] Token-authenticated participant ${result.participantId} joined room ${roomId}`);
     } catch (error) {
       this.sendError(ws, error.message);
     }

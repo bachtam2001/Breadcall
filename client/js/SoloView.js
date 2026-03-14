@@ -39,15 +39,62 @@ class SoloView {
     this.init();
   }
 
-  init() {
+  async init() {
     this.parseUrl();
-    this.render();
-    this.connect();
+
+    // Check for token in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+
+    if (token) {
+      // Validate token before rendering
+      await this.handleTokenBasedAccess(token);
+    } else {
+      this.render();
+      this.connect();
+    }
+  }
+
+  async handleTokenBasedAccess(token) {
+    try {
+      const signaling = new SignalingClient();
+      // Validate token with 'view' permission for stream access
+      const validation = await signaling.validateToken(token, 'view');
+
+      if (!validation.valid) {
+        console.error('[SoloView] Token validation failed:', validation.reason);
+        alert(validation.message || 'Invalid or expired token');
+        window.location.href = '/';
+        return;
+      }
+
+      const { type, roomId, permissions, metadata } = validation.payload;
+
+      if (type !== 'stream_access') {
+        alert('Invalid token type for stream view');
+        window.location.href = '/';
+        return;
+      }
+
+      console.log('[SoloView] Token validated successfully:', { roomId, type, permissions });
+
+      // Update room ID and proceed with normal initialization
+      this.roomId = roomId;
+      this.authToken = token;
+      this.tokenMetadata = metadata;
+
+      this.render();
+      this.connect();
+    } catch (error) {
+      console.error('[SoloView] Token handling failed:', error);
+      alert('Token validation failed: ' + error.message);
+      window.location.href = '/';
+    }
   }
 
   parseUrl() {
-    const hash = window.location.hash;
-    const parts = hash.split('/');
+    const path = window.location.pathname;
+    const parts = path.split('/');
     this.roomId = parts[2]?.toUpperCase();
     this.streamId = parts[3];
 
@@ -103,7 +150,17 @@ class SoloView {
 
     this.signaling.addEventListener('connected', () => {
       console.log('[SoloView] Connected, joining room');
-      this.signaling.send('join-room', { roomId: this.roomId, name: 'SoloView' });
+
+      // Use token if available
+      if (this.authToken) {
+        this.signaling.send('join-room-with-token', {
+          roomId: this.roomId,
+          token: this.authToken,
+          name: this.tokenMetadata?.name || 'SoloView'
+        });
+      } else {
+        this.signaling.send('join-room', { roomId: this.roomId, name: 'SoloView' });
+      }
     }, { once: true });
 
     this.signaling.addEventListener('joined-room', (e) => {
@@ -199,13 +256,13 @@ class SoloView {
   }
 }
 
-if (window.location.hash.startsWith('#/view/')) {
+if (window.location.pathname.startsWith('/view/')) {
   window.soloView = new SoloView();
 
-  window.addEventListener('hashchange', () => {
-    const newHash = window.location.hash;
-    if (newHash.startsWith('#/view/')) {
-      const parts = newHash.split('/');
+  window.addEventListener('popstate', () => {
+    const newPath = window.location.pathname;
+    if (newPath.startsWith('/view/')) {
+      const parts = newPath.split('/');
       const newRoomId = parts[2]?.toUpperCase();
       const newStreamId = parts[3];
 

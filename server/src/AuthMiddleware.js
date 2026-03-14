@@ -8,12 +8,19 @@ const crypto = require('crypto');
 class AuthMiddleware {
   constructor() {
     this.adminPassword = process.env.ADMIN_PASSWORD || 'admin';
+
+    // Cookie secure setting: use environment variable, but default to false for development
+    // When behind nginx (production), X-Forwarded-Proto will be set and cookies will work
+    // For direct connections (development), secure: false allows cookies over HTTP
+    const cookieSecure = process.env.USE_SECURE_COOKIES === 'true';
+
     this.sessionMiddleware = session({
       secret: process.env.SESSION_SECRET || this.generateSecret(),
       resave: false,
       saveUninitialized: false,
+      proxy: true, // Trust the reverse proxy when setting cookie security
       cookie: {
-        secure: process.env.USE_SECURE_COOKIES === 'true',
+        secure: cookieSecure,
         httpOnly: true,
         sameSite: 'lax',
         maxAge: 24 * 60 * 60 * 1000 // 24 hours
@@ -77,28 +84,41 @@ class AuthMiddleware {
    * POST /api/admin/login
    */
   login(req, res) {
-    const { password } = req.body;
+    try {
+      const { password } = req.body || {};
 
-    if (!password) {
-      return res.status(400).json({
+      if (!password) {
+        return res.status(400).json({
+          success: false,
+          error: 'Password required'
+        });
+      }
+
+      // Timing-safe password comparison
+      if (this.safePasswordMatch(password, this.adminPassword)) {
+        req.session.isAdmin = true;
+        req.session.loggedInAt = new Date().toISOString();
+
+        // Force session to be saved - express-session needs this with saveUninitialized: false
+        req.session.touch(Date.now());
+
+        console.log('[AuthMiddleware] Login successful, session modified:', req.session.id);
+
+        res.json({
+          success: true,
+          message: 'Login successful'
+        });
+      } else {
+        res.status(401).json({
+          success: false,
+          error: 'Invalid password'
+        });
+      }
+    } catch (error) {
+      console.error('[AuthMiddleware] Login error:', error);
+      res.status(500).json({
         success: false,
-        error: 'Password required'
-      });
-    }
-
-    // Timing-safe password comparison
-    if (this.safePasswordMatch(password, this.adminPassword)) {
-      req.session.isAdmin = true;
-      req.session.loggedInAt = new Date().toISOString();
-
-      res.json({
-        success: true,
-        message: 'Login successful'
-      });
-    } else {
-      res.status(401).json({
-        success: false,
-        error: 'Invalid password'
+        error: 'Login failed - internal server error'
       });
     }
   }
@@ -111,6 +131,7 @@ class AuthMiddleware {
     // Destroy session completely to prevent session fixation
     req.session.destroy((err) => {
       if (err) {
+        console.error('[AuthMiddleware] Logout error:', err);
         return res.status(500).json({
           success: false,
           error: 'Logout failed'

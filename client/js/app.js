@@ -31,7 +31,7 @@ class BreadCallApp {
     this.setupMediaHandlers();
     this.setupWebRTCHandlers();
 
-    window.addEventListener('hashchange', () => this.handleRouteChange());
+    window.addEventListener('popstate', () => this.handleRouteChange());
     this.handleRouteChange();
   }
 
@@ -54,6 +54,12 @@ class BreadCallApp {
         this.joinTimeoutId = null;
       }
       this.isJoining = false;
+
+      // Navigate to room URL if not already there (redirect after successful join)
+      const expectedPath = '/room/' + this.roomId;
+      if (window.location.pathname !== expectedPath) {
+        this.navigate(expectedPath);
+      }
 
       if (!this.webrtc) {
         this.webrtc = new WebRTCManager(this.signaling, { config: this.webrtcConfig, videoCodec: this.roomCodec });
@@ -220,15 +226,95 @@ class BreadCallApp {
   }
 
   handleRouteChange() {
-    const hash = window.location.hash;
-    if (!hash || hash === '#/' || hash === '') {
+    const path = window.location.pathname;
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+
+    // Handle token-based routes
+    if (token) {
+      this.handleTokenBasedRoute(path, token);
+      return;
+    }
+
+    if (!path || path === '/' || path === '') {
       this.uiManager.renderLanding();
-    } else if (hash.startsWith('#/room/')) {
-      this.roomId = hash.split('/')[2]?.toUpperCase();
+    } else if (path.startsWith('/room/')) {
+      this.roomId = path.split('/')[2]?.toUpperCase();
       this.uiManager.renderRoom(this.roomId);
       this.joinRoom(this.roomId);
     }
-    // SoloView and DirectorView now self-initialize based on hash in their respective files
+    // SoloView and DirectorView now self-initialize based on path in their respective files
+  }
+
+  async handleTokenBasedRoute(path, token) {
+    try {
+      // Validate token before rendering anything
+      const validation = await this.signaling.validateToken(token);
+
+      if (!validation.valid) {
+        // Token invalid - redirect to landing page with error
+        const errorType = `token_${validation.reason}`;
+        this.uiManager.showToast(validation.message, 'error');
+        this.navigate('/');
+        return;
+      }
+
+      // Token valid - route based on token type
+      const { type, roomId, permissions } = validation.payload;
+
+      console.log('[BreadCallApp] Token validated:', { type, roomId, permissions });
+
+      switch (type) {
+        case 'room_access':
+          this.roomId = roomId;
+          this.uiManager.renderRoom(this.roomId);
+          await this.joinRoomWithToken(this.roomId, token);
+          break;
+
+        case 'director_access':
+          // Redirect to director page (DirectorView will handle token)
+          this.navigate(`/director/${roomId}`);
+          break;
+
+        case 'stream_access':
+          // Redirect to view page (SoloView will handle token)
+          this.navigate(`/view/${roomId}`);
+          break;
+
+        case 'admin_token':
+          // Redirect to admin panel with token
+          window.location.href = `/admin?token=${token}`;
+          break;
+
+        default:
+          this.uiManager.showToast('Unknown token type', 'error');
+          this.navigate('/');
+      }
+    } catch (error) {
+      console.error('[BreadCallApp] Token handling failed:', error);
+      this.uiManager.showToast('Token validation failed', 'error');
+      this.navigate('/');
+    }
+  }
+
+  async joinRoomWithToken(roomId, token, name = 'User') {
+    // Prevent multiple concurrent join attempts
+    if (this.isJoining) return;
+    this.isJoining = true;
+
+    try {
+      // Token-based join with automatic validation
+      await this.signaling.joinRoomWithToken(roomId, token, name);
+    } catch (error) {
+      this.isJoining = false;
+      this.uiManager.showToast(error.message, 'error');
+      throw error;
+    }
+
+    // Continue with media setup (same as regular join)
+    await this.mediaManager.getUserMedia().catch((error) => {
+      console.warn('[BreadCallApp] Joining without media:', error.message);
+    });
   }
 
   async createRoom(options = {}) {
@@ -251,8 +337,18 @@ class BreadCallApp {
       this.joinTimeoutId = null;
     }
 
-    const wsProtocol = window.location.protocol === 'wss:' ? 'wss:' : 'ws:';
+    // Use wss for https pages, ws for http pages
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+
+    // Diagnostic logging for WebSocket URL construction
+    console.log('[BreadCallApp] Joining room:', {
+      protocol: window.location.protocol,
+      host: window.location.host,
+      href: window.location.href,
+      wsProtocol,
+      wsUrl
+    });
 
     // Connect to signaling server first
     if (!this.signaling.isConnected()) {
@@ -301,7 +397,7 @@ class BreadCallApp {
     this.roomId = null;
     this.participantId = null;
     this.hasConnected = false; // Reset for next room join
-    window.location.hash = '#/';
+    this.navigate('/');
   }
 
   toggleMute() {
@@ -370,14 +466,19 @@ class BreadCallApp {
     div.textContent = str;
     return div.innerHTML;
   }
+
+  navigate(path) {
+    window.history.pushState({ path }, '', path);
+    this.handleRouteChange();
+  }
 }
 
 // Initialize app when DOM is ready (only for main room view, not director/solo views)
 document.addEventListener('DOMContentLoaded', () => {
-  const hash = window.location.hash;
+  const path = window.location.pathname;
   // Don't initialize main app for director, solo, or other special views
-  if (hash.startsWith('#/director/') || hash.startsWith('#/view/')) {
-    console.log('[BreadCallApp] Skipping initialization for special view:', hash);
+  if (path.startsWith('/director/') || path.startsWith('/view/')) {
+    console.log('[BreadCallApp] Skipping initialization for special view:', path);
     return;
   }
   window.app = new BreadCallApp();

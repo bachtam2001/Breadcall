@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    env_file:
+      - ./.env
     environment:
       - PORT=3000
     volumes:
@@ -16,7 +18,7 @@ services:
   web:
     image: nginx:alpine
     ports:
-      - "80:80"
+      - "18080:80"
     volumes:
       - breadcall-public:/usr/share/nginx/html:ro
       - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro

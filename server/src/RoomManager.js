@@ -1,11 +1,17 @@
 const { v4: uuidv4 } = require('uuid');
 const WebSocket = require('ws');
+const crypto = require('crypto');
 
 class RoomManager {
   constructor() {
     this.rooms = new Map();
     this.directors = new Map(); // roomId -> Set of director WebSockets
     this.roomTTL = 5 * 60 * 1000; // 5 minutes TTL for empty rooms
+
+    // Token storage
+    this.tokens = new Map();           // tokenId -> TokenData
+    this.tokenIndex = new Map();       // roomId -> Set of tokenIds
+    this.revokedTokens = new Set();    // Revoked token IDs
   }
 
   /**
@@ -404,6 +410,257 @@ class RoomManager {
         this.deleteRoom(roomId);
       }
     }
+  }
+
+  /**
+   * Generate a signed token for room access or actions
+   * @param {string} roomId - Room ID
+   * @param {string} type - Token type (room_access, director_access, stream_access, action_token, admin_token)
+   * @param {Object} options - Token options
+   * @returns {string} Serialized token string
+   */
+  generateToken(roomId, type, options = {}) {
+    const room = this.rooms.get(roomId);
+    if (!room && type !== 'admin_token') {
+      throw new Error('Room not found');
+    }
+
+    const tokenId = crypto.randomBytes(16).toString('hex');
+    const signature = this._signToken(tokenId, roomId, type);
+
+    const tokenData = {
+      tokenId,
+      signature,
+      type,
+      roomId,
+      userId: options.userId || crypto.randomBytes(8).toString('hex'),
+      permissions: this._getDefaultPermissions(type),
+      expiresAt: options.expiresAt || Date.now() + 3600000,
+      maxUses: options.maxUses || null,
+      usedCount: 0,
+      issuedBy: options.issuedBy || 'system',
+      metadata: options.metadata || {},
+      createdAt: Date.now()
+    };
+
+    // Store token
+    this.tokens.set(tokenId, tokenData);
+
+    // Index by room for cleanup
+    if (!this.tokenIndex.has(roomId)) {
+      this.tokenIndex.set(roomId, new Set());
+    }
+    this.tokenIndex.get(roomId).add(tokenId);
+
+    // Return serialized token
+    return this._serializeToken(tokenData);
+  }
+
+  /**
+   * Validate and consume a token
+   * @param {string} tokenString - Token string to validate
+   * @param {string} action - Action being performed (for permission check)
+   * @returns {Object} Validation result
+   */
+  validateToken(tokenString, action = null) {
+    const tokenData = this._deserializeToken(tokenString);
+    if (!tokenData) {
+      return { valid: false, reason: 'invalid_format' };
+    }
+
+    // Check revocation
+    if (this.revokedTokens.has(tokenData.tokenId)) {
+      return { valid: false, reason: 'revoked' };
+    }
+
+    // Check existence
+    const stored = this.tokens.get(tokenData.tokenId);
+    if (!stored) {
+      return { valid: false, reason: 'not_found' };
+    }
+
+    // Verify signature
+    if (!this._verifySignature(stored)) {
+      return { valid: false, reason: 'invalid_signature' };
+    }
+
+    // Check expiration
+    if (stored.expiresAt && stored.expiresAt < Date.now()) {
+      return { valid: false, reason: 'expired' };
+    }
+
+    // Check usage limit
+    if (stored.maxUses && stored.usedCount >= stored.maxUses) {
+      return { valid: false, reason: 'max_uses_reached' };
+    }
+
+    // Check action permission if specified
+    if (action && !stored.permissions.includes(action)) {
+      return { valid: false, reason: 'permission_denied' };
+    }
+
+    // Increment usage count
+    stored.usedCount++;
+
+    return {
+      valid: true,
+      payload: {
+        type: stored.type,
+        roomId: stored.roomId,
+        permissions: stored.permissions,
+        metadata: stored.metadata
+      }
+    };
+  }
+
+  /**
+   * Revoke a token
+   * @param {string} tokenId - Token ID to revoke
+   * @returns {boolean} Success
+   */
+  revokeToken(tokenId) {
+    const token = this.tokens.get(tokenId);
+    if (token) {
+      this.revokedTokens.add(tokenId);
+      // Cleanup after 24 hours
+      setTimeout(() => {
+        this.revokedTokens.delete(tokenId);
+        this.tokens.delete(tokenId);
+      }, 86400000);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Cleanup expired tokens for a room
+   * @param {string} roomId - Room ID
+   */
+  cleanupExpiredTokens(roomId) {
+    const tokenIds = this.tokenIndex.get(roomId);
+    if (!tokenIds) return;
+
+    const now = Date.now();
+    for (const tokenId of tokenIds) {
+      const token = this.tokens.get(tokenId);
+      if (token && token.expiresAt < now) {
+        this.tokens.delete(tokenId);
+        tokenIds.delete(tokenId);
+      }
+    }
+
+    if (tokenIds.size === 0) {
+      this.tokenIndex.delete(roomId);
+    }
+  }
+
+  /**
+   * Get default permissions by token type
+   * @param {string} type - Token type
+   * @returns {Array} Default permissions
+   */
+  _getDefaultPermissions(type) {
+    switch (type) {
+      case 'room_access':
+        return ['join', 'send-audio', 'send-video', 'chat'];
+      case 'director_access':
+        return ['view-all', 'mute-participant', 'room-settings'];
+      case 'stream_access':
+        return ['view'];
+      case 'action_token':
+        return ['execute'];
+      case 'admin_token':
+        return ['create-room', 'delete-room', 'list-all', 'manage-users'];
+      default:
+        return [];
+    }
+  }
+
+  /**
+   * Sign token with HMAC
+   * @param {string} tokenId - Token ID
+   * @param {string} roomId - Room ID
+   * @param {string} type - Token type
+   * @returns {string} HMAC signature
+   */
+  _signToken(tokenId, roomId, type) {
+    const secret = process.env.TOKEN_SECRET || 'default-secret-change-in-production';
+    return crypto
+      .createHmac('sha256', secret)
+      .update(`${tokenId}:${roomId}:${type}`)
+      .digest('hex');
+  }
+
+  /**
+   * Verify token signature
+   * @param {Object} token - Token data
+   * @returns {boolean} Valid signature
+   */
+  _verifySignature(token) {
+    const expected = this._signToken(token.tokenId, token.roomId, token.type);
+    return crypto.timingSafeEqual(
+      Buffer.from(token.signature),
+      Buffer.from(expected)
+    );
+  }
+
+  /**
+   * Serialize token for transmission
+   * @param {Object} token - Token data
+   * @returns {string} Serialized token string
+   */
+  _serializeToken(token) {
+    // Compact format: tokenId.signature (base64 encoded JSON)
+    const payload = Buffer.from(JSON.stringify({
+      tokenId: token.tokenId,
+      signature: token.signature
+    })).toString('base64');
+    return `tok_${payload}`;
+  }
+
+  /**
+   * Deserialize token from string
+   * @param {string} tokenString - Token string
+   * @returns {Object|null} Token data or null
+   */
+  _deserializeToken(tokenString) {
+    try {
+      if (!tokenString.startsWith('tok_')) return null;
+      const payload = tokenString.slice(4);
+      const decoded = JSON.parse(Buffer.from(payload, 'base64').toString());
+      return decoded;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * Get all tokens for a room (for admin listing)
+   * @param {string} roomId - Room ID
+   * @returns {Array} List of token info (without sensitive data)
+   */
+  getRoomTokens(roomId) {
+    const tokenIds = this.tokenIndex.get(roomId);
+    if (!tokenIds) {
+      return [];
+    }
+
+    const tokens = [];
+    for (const tokenId of tokenIds) {
+      const token = this.tokens.get(tokenId);
+      if (token) {
+        tokens.push({
+          tokenId: token.tokenId,
+          type: token.type,
+          createdAt: token.createdAt,
+          expiresAt: token.expiresAt,
+          usedCount: token.usedCount,
+          maxUses: token.maxUses,
+          metadata: token.metadata
+        });
+      }
+    }
+    return tokens;
   }
 }
 

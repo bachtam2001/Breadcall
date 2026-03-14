@@ -11,16 +11,64 @@ class DirectorView {
     this.init();
   }
 
-  init() {
+  async init() {
     this.parseUrl();
-    this.render();
-    this.connect();
-    this.startStatsPolling();
+
+    // Check for token in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+
+    if (token) {
+      // Validate token before rendering
+      await this.handleTokenBasedAccess(token);
+    } else {
+      this.render();
+      this.connect();
+      this.startStatsPolling();
+    }
+  }
+
+  async handleTokenBasedAccess(token) {
+    try {
+      const signaling = new SignalingClient();
+      // Validate token with 'view-all' permission for director access
+      const validation = await signaling.validateToken(token, 'view-all');
+
+      if (!validation.valid) {
+        console.error('[Director] Token validation failed:', validation.reason);
+        alert(validation.message || 'Invalid or expired token');
+        window.location.href = '/';
+        return;
+      }
+
+      const { type, roomId, permissions, metadata } = validation.payload;
+
+      if (type !== 'director_access') {
+        alert('Invalid token type for director access');
+        window.location.href = '/';
+        return;
+      }
+
+      console.log('[Director] Token validated successfully:', { roomId, type, permissions });
+
+      // Update room ID and proceed with normal initialization
+      this.roomId = roomId;
+      this.authToken = token;
+      this.tokenMetadata = metadata;
+
+      this.render();
+      this.connect();
+      this.startStatsPolling();
+    } catch (error) {
+      console.error('[Director] Token handling failed:', error);
+      alert('Token validation failed: ' + error.message);
+      window.location.href = '/';
+    }
   }
 
   parseUrl() {
-    const hash = window.location.hash;
-    const parts = hash.split('/');
+    const path = window.location.pathname;
+    const parts = path.split('/');
     this.roomId = parts[2]?.toUpperCase();
   }
 
@@ -53,7 +101,17 @@ class DirectorView {
 
     this.signaling.addEventListener('connected', () => {
       console.log('[Director] Connected');
-      this.signaling.send('join-room-director', { roomId: this.roomId, name: 'Director' });
+
+      // Use token if available
+      if (this.authToken) {
+        this.signaling.send('join-room-with-token', {
+          roomId: this.roomId,
+          token: this.authToken,
+          name: this.tokenMetadata?.name || 'Director'
+        });
+      } else {
+        this.signaling.send('join-room-director', { roomId: this.roomId, name: 'Director' });
+      }
     });
 
     this.signaling.addEventListener('joined-room', (e) => {
@@ -267,14 +325,14 @@ class DirectorView {
   }
 }
 
-if (window.location.hash.startsWith('#/director/')) {
+if (window.location.pathname.startsWith('/director/')) {
   window.directorView = new DirectorView();
   window.addEventListener('beforeunload', () => window.directorView.cleanup());
 
-  window.addEventListener('hashchange', () => {
-    const newHash = window.location.hash;
-    if (newHash.startsWith('#/director/')) {
-      const newRoomId = newHash.split('/')[2]?.toUpperCase();
+  window.addEventListener('popstate', () => {
+    const newPath = window.location.pathname;
+    if (newPath.startsWith('/director/')) {
+      const newRoomId = newPath.split('/')[2]?.toUpperCase();
       if (newRoomId && newRoomId !== window.directorView.roomId) {
         console.log('[Director] Room changed from', window.directorView.roomId, 'to', newRoomId);
         window.directorView.cleanup();

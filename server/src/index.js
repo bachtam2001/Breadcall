@@ -21,6 +21,11 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   : ['http://localhost', 'http://localhost:80', 'http://localhost:3000', 'http://localhost:8080'];
 
 // Middleware
+
+// Trust proxy - required for secure cookies when behind nginx reverse proxy
+// Allows Express to correctly identify HTTPS connections via X-Forwarded-Proto header
+app.set('trust proxy', 1);
+
 app.use(cors({
   origin: function(origin, callback) {
     // Allow requests with no origin (like mobile apps or curl, but block admin API)
@@ -41,6 +46,25 @@ app.use(authMiddleware.getSessionMiddleware());
 
 // Serve static files in development
 app.use(express.static(path.join(__dirname, '../../client')));
+
+// SPA catch-all route - serve index.html for unknown paths
+// This enables HTML5 History API routing (clean URLs without #)
+app.get('{*path}', (req, res, next) => {
+  const path = req.path;
+
+  // Skip API routes, static files, admin, and files with extensions
+  if (path.startsWith('/api/') ||
+      path.startsWith('/css/') ||
+      path.startsWith('/js/') ||
+      path.startsWith('/admin') ||
+      path.includes('.') ||
+      path.startsWith('/view/')) {  // MediaMTX proxy paths
+    return next();
+  }
+
+  // Serve index.html for SPA routes
+  res.sendFile(path.join(__dirname, '../../public/index.html'));
+});
 
 // Create HTTP server
 const server = http.createServer(app);
@@ -126,6 +150,7 @@ app.get('/api/webrtc-config', (req, res) => {
 
 // Admin login
 app.post('/api/admin/login', (req, res) => {
+  console.log('[API] Admin login attempt');
   authMiddleware.login(req, res);
 });
 
@@ -243,6 +268,166 @@ app.put('/api/admin/rooms/:roomId/settings', authMiddleware.isAuthenticated.bind
     }
   });
 });
+
+// =============================================================================
+// Token API Routes
+// =============================================================================
+
+/**
+ * Generate token
+ */
+app.post('/api/tokens', authMiddleware.isAuthenticated.bind(authMiddleware), async (req, res) => {
+  try {
+    const { type, roomId, options = {} } = req.body;
+
+    // Validate token type
+    const validTypes = ['room_access', 'director_access', 'stream_access', 'action_token', 'admin_token'];
+    if (!validTypes.includes(type)) {
+      return res.status(400).json({ success: false, error: 'Invalid token type' });
+    }
+
+    // Validate room exists for room-based tokens
+    if (['room_access', 'director_access', 'stream_access'].includes(type)) {
+      if (!roomId) {
+        return res.status(400).json({ success: false, error: 'Room ID required' });
+      }
+      const room = roomManager.getRoom(roomId);
+      if (!room) {
+        return res.status(404).json({ success: false, error: 'Room not found' });
+      }
+    }
+
+    // Set expiry based on token type if not specified
+    const expiryDefaults = {
+      room_access: 86400,        // 24 hours
+      director_access: 28800,    // 8 hours
+      stream_access: 3600,       // 1 hour
+      action_token: 300,         // 5 minutes
+      admin_token: 3600          // 1 hour
+    };
+
+    if (!options.expiresAt && expiryDefaults[type]) {
+      options.expiresAt = Date.now() + (expiryDefaults[type] * 1000);
+    }
+
+    // Generate token
+    const token = roomManager.generateToken(roomId, type, {
+      ...options,
+      issuedBy: req.session?.admin?.id || 'api'
+    });
+
+    // Build shareable URL (using new HTML5 History API format, not hash)
+    const baseUrl = getTokenBaseUrl(type, roomId);
+    const fullUrl = `${req.protocol}://${req.get('host')}${baseUrl}?token=${token}`;
+
+    // Generate QR code if requested
+    let qrCode = null;
+    if (req.body.includeQrCode) {
+      const QRCode = require('qrcode');
+      qrCode = await QRCode.toDataURL(fullUrl);
+    }
+
+    res.json({
+      success: true,
+      token,
+      expiresAt: options.expiresAt,
+      url: fullUrl,
+      qrCode
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Validate token
+ */
+app.post('/api/tokens/validate', async (req, res) => {
+  try {
+    const { token, action } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ success: false, error: 'Token required' });
+    }
+
+    const result = roomManager.validateToken(token, action);
+
+    if (!result.valid) {
+      return res.json({
+        success: true,
+        valid: false,
+        reason: result.reason,
+        message: getTokenErrorMessage(result.reason)
+      });
+    }
+
+    res.json({
+      success: true,
+      valid: true,
+      payload: result.payload
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Revoke token
+ */
+app.delete('/api/tokens/:tokenId', authMiddleware.isAuthenticated.bind(authMiddleware), (req, res) => {
+  const { tokenId } = req.params;
+
+  if (roomManager.revokeToken(tokenId)) {
+    res.json({ success: true, revoked: true });
+  } else {
+    res.status(404).json({ success: false, error: 'Token not found' });
+  }
+});
+
+/**
+ * List tokens for a room (admin only)
+ */
+app.get('/api/admin/rooms/:roomId/tokens', authMiddleware.isAuthenticated.bind(authMiddleware), (req, res) => {
+  const { roomId } = req.params;
+  const room = roomManager.getRoom(roomId);
+
+  if (!room) {
+    return res.status(404).json({ success: false, error: 'Room not found' });
+  }
+
+  const tokens = roomManager.getRoomTokens(roomId);
+  res.json({ success: true, tokens });
+});
+
+// Helper: Get base URL for token type (using HTML5 History API format, not hash)
+function getTokenBaseUrl(type, roomId) {
+  switch (type) {
+    case 'room_access':
+      return `/room/${roomId}`;
+    case 'director_access':
+      return `/director/${roomId}`;
+    case 'stream_access':
+      return `/view/${roomId}`;
+    case 'admin_token':
+      return `/admin`;
+    default:
+      return '/';
+  }
+}
+
+// Helper: Get error message
+function getTokenErrorMessage(reason) {
+  const messages = {
+    expired: 'This invite link has expired',
+    max_uses_reached: 'This invite link has reached its usage limit',
+    not_found: 'The room for this token no longer exists',
+    invalid_format: 'Invalid token format',
+    invalid_signature: 'Token signature verification failed',
+    revoked: 'This token has been revoked',
+    permission_denied: 'This token does not have permission for that action'
+  };
+  return messages[reason] || 'Invalid or expired token';
+}
 
 // Allowed origins for WebSocket connections
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS

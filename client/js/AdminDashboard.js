@@ -350,6 +350,72 @@ class AdminDashboard {
         '</div>' +
       '</div>' +
 
+      // Generate Token Modal
+      '<div class="modal-overlay" id="generate-token-modal">' +
+        '<div class="modal modal-large">' +
+          '<div class="modal-header">' +
+            '<h3>Generate Access Token</h3>' +
+            '<button class="modal-close" id="close-token-modal">&times;</button>' +
+          '</div>' +
+          '<div class="modal-body">' +
+            '<form id="generate-token-form">' +
+              '<input type="hidden" id="token-room-id">' +
+              '<div class="form-group">' +
+                '<label for="token-type">Token Type</label>' +
+                '<select id="token-type">' +
+                  '<option value="room_access">Participant Access (Join Room)</option>' +
+                  '<option value="director_access">Director Access (Dashboard)</option>' +
+                  '<option value="stream_access">Stream View (OBS Browser Source)</option>' +
+                '</select>' +
+              '</div>' +
+              '<div class="form-group">' +
+                '<label for="token-expiry">Expiry</label>' +
+                '<select id="token-expiry">' +
+                  '<option value="300">5 minutes</option>' +
+                  '<option value="3600">1 hour</option>' +
+                  '<option value="28800" selected>8 hours</option>' +
+                  '<option value="86400">24 hours</option>' +
+                  '<option value="604800">7 days</option>' +
+                '</select>' +
+              '</div>' +
+              '<div class="form-group">' +
+                '<label for="token-max-uses">Max Uses (optional)</label>' +
+                '<input type="number" id="token-max-uses" min="1" max="100" placeholder="Leave empty for unlimited">' +
+              '</div>' +
+              '<div class="form-group">' +
+                '<label for="token-name">Participant Name (optional)</label>' +
+                '<input type="text" id="token-name" placeholder="Pre-set name for this token">' +
+              '</div>' +
+            '</form>' +
+            '<div id="token-result" style="display: none; margin-top: var(--space-lg);">' +
+              '<h4 style="margin-bottom: var(--space-md);">Generated Token</h4>' +
+              '<div class="token-result-box" style="background: var(--color-bg-secondary); padding: var(--space-md); border-radius: 4px; margin-bottom: var(--space-md);">' +
+                '<div class="form-group">' +
+                  '<label>Access URL</label>' +
+                  '<input type="text" id="token-url" readonly style="width: 100%; padding: var(--space-sm); border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-primary);">' +
+                '</div>' +
+                '<div class="form-group">' +
+                  '<label>Token String</label>' +
+                  '<input type="text" id="token-string" readonly style="width: 100%; padding: var(--space-sm); border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg-primary); font-family: monospace;">' +
+                '</div>' +
+              '</div>' +
+              '<div style="display: flex; gap: var(--space-md);">' +
+                '<button class="btn btn-primary" id="copy-token-url-btn">Copy URL</button>' +
+                '<button class="btn btn-secondary" id="copy-token-string-btn">Copy Token</button>' +
+                '<button class="btn btn-secondary" id="download-qr-btn">Download QR Code</button>' +
+              '</div>' +
+              '<div id="token-qr-container" style="margin-top: var(--space-lg); text-align: center; display: none;">' +
+                '<img id="token-qr-image" alt="QR Code" style="max-width: 200px;">' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="modal-footer">' +
+            '<button class="btn btn-secondary" id="cancel-token-btn">Close</button>' +
+            '<button class="btn btn-primary" id="generate-token-btn">Generate Token</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
       // Toast Container
       '<div id="toast-container" class="toast-container"></div>';
 
@@ -403,6 +469,7 @@ class AdminDashboard {
           '</div>' +
           '<div class="room-card-actions" style="margin-top: var(--space-sm);">' +
             '<button class="btn btn-accent btn-sm copy-link-btn" data-room-id="' + room.id + '" data-room-password="' + (room.password || '') + '">Copy Link</button>' +
+            '<button class="btn btn-accent btn-sm generate-token-btn" data-room-id="' + room.id + '">Generate Token</button>' +
             '<button class="btn btn-danger btn-sm delete-room-btn" data-room-id="' + room.id + '">Delete Room</button>' +
           '</div>' +
         '</div>';
@@ -477,6 +544,37 @@ class AdminDashboard {
     if (closeParticipantsBtn) closeParticipantsBtn.addEventListener('click', function() {
       document.getElementById('participants-modal').classList.remove('active');
     });
+
+    // Generate token modal
+    var closeTokenModal = document.getElementById('close-token-modal');
+    if (closeTokenModal) closeTokenModal.addEventListener('click', function() {
+      document.getElementById('generate-token-modal').classList.remove('active');
+    });
+
+    var cancelTokenBtn = document.getElementById('cancel-token-btn');
+    if (cancelTokenBtn) cancelTokenBtn.addEventListener('click', function() {
+      document.getElementById('generate-token-modal').classList.remove('active');
+    });
+
+    var generateTokenBtn = document.getElementById('generate-token-btn');
+    if (generateTokenBtn) generateTokenBtn.addEventListener('click', function() {
+      self.handleGenerateToken();
+    });
+
+    var copyTokenUrlBtn = document.getElementById('copy-token-url-btn');
+    if (copyTokenUrlBtn) copyTokenUrlBtn.addEventListener('click', function() {
+      self.copyTokenUrl();
+    });
+
+    var copyTokenStringBtn = document.getElementById('copy-token-string-btn');
+    if (copyTokenStringBtn) copyTokenStringBtn.addEventListener('click', function() {
+      self.copyTokenString();
+    });
+
+    var downloadQrBtn = document.getElementById('download-qr-btn');
+    if (downloadQrBtn) downloadQrBtn.addEventListener('click', function() {
+      self.downloadQrCode();
+    });
   }
 
   bindRoomCardEvents() {
@@ -526,6 +624,15 @@ class AdminDashboard {
         var roomId = e.target.dataset.roomId;
         var roomPassword = e.target.dataset.roomPassword || '';
         self.copyRoomLink(roomId, roomPassword);
+      });
+    });
+
+    // Generate token button
+    document.querySelectorAll('.generate-token-btn').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var roomId = e.target.dataset.roomId;
+        self.showGenerateTokenModal(roomId);
       });
     });
   }
@@ -669,6 +776,135 @@ class AdminDashboard {
 
       document.getElementById('participants-modal').classList.add('active');
     });
+  }
+
+  // =============================================================================
+  // Token Generation
+  // =============================================================================
+
+  showGenerateTokenModal(roomId) {
+    // Set the hidden room ID field
+    document.getElementById('token-room-id').value = roomId;
+
+    // Reset the form
+    document.getElementById('generate-token-form').reset();
+
+    // Hide the result area
+    document.getElementById('token-result').style.display = 'none';
+
+    // Show the modal
+    document.getElementById('generate-token-modal').classList.add('active');
+  }
+
+  async handleGenerateToken() {
+    var self = this;
+    var roomId = document.getElementById('token-room-id').value;
+    var tokenType = document.getElementById('token-type').value;
+    var expirySeconds = parseInt(document.getElementById('token-expiry').value, 10);
+    var maxUses = document.getElementById('token-max-uses').value;
+    var name = document.getElementById('token-name').value;
+
+    // Validate
+    if (!roomId) {
+      this.showToast('Room ID is missing', 'error');
+      return;
+    }
+
+    // Build request
+    var requestBody = {
+      type: tokenType,
+      roomId: roomId,
+      options: {
+        expiresAt: Date.now() + (expirySeconds * 1000)
+      }
+    };
+
+    if (maxUses && maxUses.trim() !== '') {
+      requestBody.options.maxUses = parseInt(maxUses, 10);
+    }
+
+    if (name && name.trim() !== '') {
+      requestBody.options.metadata = { name: name.trim() };
+    }
+
+    try {
+      var response = await fetch('/api/tokens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+      });
+
+      var data = await response.json();
+
+      if (data.success) {
+        // Display result
+        document.getElementById('token-url').value = data.url;
+        document.getElementById('token-string').value = data.token;
+
+        // Show result area
+        document.getElementById('token-result').style.display = 'block';
+
+        // Show QR code if available
+        var qrContainer = document.getElementById('token-qr-container');
+        if (data.qrCode) {
+          document.getElementById('token-qr-image').src = data.qrCode;
+          qrContainer.style.display = 'block';
+        } else {
+          qrContainer.style.display = 'none';
+        }
+
+        self.showToast('Token generated successfully', 'success');
+      } else {
+        self.showToast(data.error || 'Failed to generate token', 'error');
+      }
+    } catch (error) {
+      console.error('[AdminDashboard] Token generation failed:', error);
+      self.showToast('Connection error', 'error');
+    }
+  }
+
+  copyTokenUrl() {
+    var urlField = document.getElementById('token-url');
+    urlField.select();
+    urlField.setSelectionRange(0, 99999); // For mobile
+
+    var self = this;
+    navigator.clipboard.writeText(urlField.value).then(function() {
+      self.showToast('URL copied to clipboard', 'success');
+    }).catch(function(err) {
+      self.showToast('Failed to copy URL', 'error');
+    });
+  }
+
+  copyTokenString() {
+    var tokenField = document.getElementById('token-string');
+    tokenField.select();
+    tokenField.setSelectionRange(0, 99999); // For mobile
+
+    var self = this;
+    navigator.clipboard.writeText(tokenField.value).then(function() {
+      self.showToast('Token copied to clipboard', 'success');
+    }).catch(function(err) {
+      self.showToast('Failed to copy token', 'error');
+    });
+  }
+
+  downloadQrCode() {
+    var qrImage = document.getElementById('token-qr-image');
+    var qrContainer = document.getElementById('token-qr-container');
+
+    if (qrImage && qrImage.src && qrContainer.style.display !== 'none') {
+      // Create a temporary link and trigger download
+      var link = document.createElement('a');
+      link.href = qrImage.src;
+      link.download = 'token-qrcode.png';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      this.showToast('QR code downloaded', 'success');
+    } else {
+      this.showToast('QR code not available', 'warning');
+    }
   }
 
   // =============================================================================
