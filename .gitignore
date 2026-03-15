@@ -1,5 +1,8 @@
-# Documentation (internal planning)
-docs/
+# Documentation (internal planning - not yet approved)
+docs/internal/
+docs/plans/
+!docs/specs/
+!docs/superpowers/
 
 # Dependencies
 node_modules/
