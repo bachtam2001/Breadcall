@@ -61,6 +61,12 @@ describe('User and Monitoring Routes', () => {
     app = express();
     app.use(express.json());
 
+    // Attach mock RBAC manager to app.locals
+    app.locals.rbacManager = mockRbac;
+
+    // Default: allow all permission checks
+    mockRbac.hasPermission.mockResolvedValue(true);
+
     // Mount routes with mock auth middleware
     app.use('/api/user', mockRequireAuth, createUserRouter(olaManager, roomManager));
     app.use('/api/monitoring', mockRequireAuth, createMonitoringRouter(roomManager));

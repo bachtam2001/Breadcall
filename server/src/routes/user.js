@@ -14,8 +14,18 @@ function createUserRouter(olaManager, roomManager) {
   const router = express.Router();
 
   router.get('/rooms', async (req, res) => {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Not authenticated' });
+    }
+
+    const rbacManager = req.app.locals.rbacManager;
+    const hasPermission = await rbacManager.hasPermission(req.user.role, 'view', 'room');
+    if (!hasPermission) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
     try {
-      const userId = req.user.id;
 
       // Get user's room assignments from OLAManager
       const assignments = await olaManager.getUserRoomAssignments(userId);

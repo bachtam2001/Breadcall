@@ -2,17 +2,20 @@
 -- Date: 2026-03-14
 
 -- Roles (hierarchy: higher = more privileged)
-INSERT OR REPLACE INTO roles (name, hierarchy, description) VALUES
+INSERT INTO roles (name, hierarchy, description) VALUES
   ('super_admin', 100, 'Full system access'),
   ('room_admin', 80, 'Create and manage own rooms'),
   ('moderator', 60, 'Manage participants in assigned rooms'),
   ('director', 50, 'View and control streams, generate SRT'),
   ('operator', 40, 'Read-only monitoring'),
   ('participant', 20, 'Join rooms, send audio/video'),
-  ('viewer', 10, 'View single stream, SoloView, SRT link');
+  ('viewer', 10, 'View single stream, SoloView, SRT link')
+ON CONFLICT (name) DO UPDATE SET
+  hierarchy = EXCLUDED.hierarchy,
+  description = EXCLUDED.description;
 
 -- Role Permissions
-INSERT OR REPLACE INTO role_permissions (role, permission, object_type) VALUES
+INSERT INTO role_permissions (role, permission, object_type) VALUES
   -- Super Admin (all permissions)
   ('super_admin', '*', 'system'),
   ('super_admin', '*', 'room'),
@@ -49,4 +52,5 @@ INSERT OR REPLACE INTO role_permissions (role, permission, object_type) VALUES
   -- Viewer
   ('viewer', 'view', 'stream'),
   ('viewer', 'generate_srt', 'stream'),
-  ('viewer', 'view_solo', 'stream');
+  ('viewer', 'view_solo', 'stream')
+ON CONFLICT (role, permission, object_type) DO NOTHING;

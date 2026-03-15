@@ -13,7 +13,13 @@ const express = require('express');
 function createMonitoringRouter(roomManager) {
   const router = express.Router();
 
-  router.get('/status', (req, res) => {
+  router.get('/status', async (req, res) => {
+    const rbacManager = req.app.locals.rbacManager;
+    const hasPermission = await rbacManager.hasPermission(req.user.role, 'view', 'system');
+    if (!hasPermission) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
     try {
       const rooms = roomManager.getAllRooms();
       const activeRooms = rooms.length;
@@ -42,7 +48,13 @@ function createMonitoringRouter(roomManager) {
    * GET /api/monitoring/rooms
    * Get detailed information about all active rooms
    */
-  router.get('/rooms', (req, res) => {
+  router.get('/rooms', async (req, res) => {
+    const rbacManager = req.app.locals.rbacManager;
+    const hasPermission = await rbacManager.hasPermission(req.user.role, 'view', 'system');
+    if (!hasPermission) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
     try {
       const rooms = roomManager.getAllRooms();
 
