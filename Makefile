@@ -1,4 +1,4 @@
-.PHONY: help dev prod stop clean logs build push
+.PHONY: help dev prod stop clean logs build health certs
 
 # Default target
 help:
@@ -10,8 +10,6 @@ help:
 	@echo "  make clean     - Remove containers and volumes"
 	@echo "  make logs      - View logs"
 	@echo "  make build     - Build all images"
-	@echo "  make push      - Push images to registry"
-	@echo "  make scale     - Scale coturn service"
 	@echo ""
 
 # Development
@@ -20,11 +18,10 @@ dev:
 	@echo "Services started:"
 	@echo "  - Signaling: http://localhost:3000"
 	@echo "  - Web:       http://localhost:80"
-	@echo "  - TURN:      localhost:3478"
 
-# Production (with scaling)
+# Production
 prod:
-	docker compose -f docker-compose.yml -f docker-compose.distributed.yml up --build -d
+	docker compose up --build -d
 
 # Stop all services
 stop:
@@ -43,24 +40,12 @@ logs:
 logs-signaling:
 	docker compose logs -f signaling
 
-logs-coturn:
-	docker compose logs -f coturn
-
 logs-web:
 	docker compose logs -f web
 
 # Build images
 build:
 	docker compose build
-
-# Push to registry (set REGISTRY env var)
-push:
-	docker tag breadcall-signaling:latest ${REGISTRY}/breadcall-signaling:latest
-	docker push ${REGISTRY}/breadcall-signaling:latest
-
-# Scale coturn (default 3 replicas)
-scale:
-	docker compose up --scale coturn=${REPLICAS:-3} -d
 
 # Health check
 health:
@@ -79,8 +64,3 @@ certs:
 		-out certs/server.crt \
 		-subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
 	@echo "Certificates generated in certs/ folder"
-
-# Coturn test
-test-turn:
-	@echo "Testing TURN server..."
-	docker compose exec coturn turnutils_uclient -u turnuser -p turnpassword stun.l.google.com:19302

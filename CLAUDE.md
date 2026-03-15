@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-BreadCall is a WebRTC live production platform with split streams, NDI/SRT output support, and mobile connectivity. The project consists of:
+BreadCall is a WebRTC live production platform with split streams and MediaMTX integration. The project consists of:
 
 - **Signaling Server** (Node.js/Express + WebSocket) - Room management and WebRTC signaling
 - **Client Frontend** (Vanilla JS) - Room UI, director dashboard, solo view
@@ -65,7 +65,13 @@ npm run build:dev
 | `UIManager.js` | DOM rendering, video grid, toasts |
 | `WHIPClient.js` / `WHEPClient.js` | WHIP/WHEP protocol clients for MediaMTX |
 | `DirectorView.js` / `SoloView.js` | Specialized view controllers |
-| `AdminDashboard.js` | Admin UI for token management |
+| `AdminDashboard.js` | Admin panel for room management, participant monitoring, token generation |
+| `AudioMixer.js` | Multi-source audio mixing with EQ and compressor |
+| `FileTransfer.js` | P2P file transfer via DataChannel |
+| `SceneComposer.js` | Multi-stream layout composer |
+| `VideoEffects.js` | Video filters, LUT, chroma key |
+| `TallyLight.js` | On-air/preview indicators |
+| `Recorder.js` | MediaRecorder API wrapper for local recording |
 
 ### Key Flows
 
@@ -110,7 +116,7 @@ npm run build:dev
 # Start all services
 docker-compose up -d
 
-# Services: nginx (80), signaling (3000), MediaMTX (8887), Coturn (3478)
+# Services: nginx (80), signaling (3000), MediaMTX (8887)
 ```
 
 ## Environment Variables
@@ -130,10 +136,10 @@ Required in `.env`:
 | Route | Description |
 |-------|-------------|
 | `/` | Landing page |
-| `/#/room/:roomId` | Room view |
-| `/#/view/:roomId/:streamId` | Solo stream view |
-| `/#/director/:roomId` | Director dashboard |
-| `/#/admin` | Admin dashboard |
+| `/room/:roomId` | Room view |
+| `/view/:roomId/:streamId` | Solo stream view |
+| `/director/:roomId` | Director dashboard |
+| `/admin` | Admin dashboard (room management, tokens) |
 | `/whip/:streamName` | WHIP publish endpoint |
 | `/whep/:streamName` | WHEP playback endpoint |
 | `/view/:streamName/` | MediaMTX iframe player |

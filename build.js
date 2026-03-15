@@ -83,6 +83,7 @@ async function buildAdminApp() {
       },
       legalComments: 'none'
     });
+
     console.log('✓ Built: AdminDashboard.bundle.min.js');
   } catch (error) {
     console.error('Failed to build admin app:', error.message);

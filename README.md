@@ -1,6 +1,6 @@
 # BreadCall - WebRTC Live Production Platform
 
-Professional WebRTC platform for live production with split streams, NDI/SRT output support, and mobile connectivity.
+Professional WebRTC platform for live production with split streams and MediaMTX integration.
 
 ## Quick Start
 
@@ -71,9 +71,10 @@ docker-compose up -d
 | View | URL | Description |
 |------|-----|-------------|
 | **Landing** | `/` | Home page |
-| **Room** | `/#/room/:roomId` | Join a room |
-| **Solo View** | `/#/view/:roomId/:streamId` | Single stream view |
-| **Director** | `/#/director/:roomId` | Director dashboard |
+| **Room** | `/room/:roomId` | Join a room |
+| **Solo View** | `/view/:roomId/:streamId` | Single stream view |
+| **Director** | `/director/:roomId` | Director dashboard |
+| **Admin** | `/admin` | Admin dashboard (room management, tokens) |
 | **MediaMTX Embed** | `/view/:streamName/` | Iframe player (MediaMTX) |
 
 ## API Endpoints
@@ -207,11 +208,8 @@ npm test -- UIManager
 | Phase | Status | Description |
 |-------|--------|-------------|
 | Phase 1 | ✅ | Core WebRTC Platform |
-| Phase 2 | ✅ | Docker Infrastructure (coturn) |
-| Phase 3 | ✅ | NDI Desktop Client |
-| Phase 4 | ✅ | SRT Gateway |
-| Phase 5 | ✅ | Mobile App (React Native) |
-| Phase 6 | ✅ | Advanced Features (WHIP/WHEP, MediaMTX) |
+| Phase 2 | ✅ | Docker Infrastructure |
+| Phase 3 | ✅ | MediaMTX Integration (WHIP/WHEP) |
 
 ## Troubleshooting
 
