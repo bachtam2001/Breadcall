@@ -1,4 +1,23 @@
 services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:17-alpine
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./server/database/migrations/001-postgres-schema.sql:/docker-entrypoint-initdb.d/001-schema.sql
+    environment:
+      POSTGRES_DB: breadcall
+      POSTGRES_USER: breadcall
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    networks:
+      - breadcall-network
+    healthcheck:
+      test: pg_isready -U breadcall -d breadcall
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
   signaling:
     build:
       context: .
@@ -7,12 +26,18 @@ services:
       - ./.env
     environment:
       - PORT=3000
+      - DATABASE_URL=postgres://breadcall:${DB_PASSWORD:-changeme}@postgres:5432/breadcall
+      - DB_POOL_MIN=2
+      - DB_POOL_MAX=10
     volumes:
       - ./logs:/app/logs
       - breadcall-public:/app/public
     networks:
       - breadcall-network
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # Web Frontend (nginx)
   web:
@@ -56,6 +81,7 @@ services:
 
 volumes:
   breadcall-public:
+  postgres-data:
 
 networks:
   breadcall-network:
