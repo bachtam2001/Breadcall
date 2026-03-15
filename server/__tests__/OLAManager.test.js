@@ -2,64 +2,221 @@ const OLAManager = require('../src/OLAManager');
 const Database = require('../src/database');
 const RBACManager = require('../src/RBACManager');
 
+// Mock the pg package
+jest.mock('pg', () => {
+  const mockClient = {
+    release: jest.fn().mockResolvedValue(),
+    query: jest.fn()
+  };
+
+  const mockPool = {
+    connect: jest.fn().mockResolvedValue(mockClient),
+    query: jest.fn(),
+    end: jest.fn().mockResolvedValue()
+  };
+
+  return {
+    Pool: jest.fn().mockImplementation(() => mockPool)
+  };
+});
+
 describe('OLAManager', () => {
   let olaManager;
   let db;
   let rbac;
+  let mockPool;
 
-  beforeAll(async () => {
-    db = new Database(':memory:');
+  // Mock data for roles and permissions
+  const mockRoles = [
+    { name: 'super_admin', hierarchy: 100, description: 'Full system access' },
+    { name: 'room_admin', hierarchy: 80, description: 'Create and manage own rooms' },
+    { name: 'moderator', hierarchy: 60, description: 'Manage participants in assigned rooms' },
+    { name: 'director', hierarchy: 50, description: 'View and control streams' },
+    { name: 'operator', hierarchy: 40, description: 'Read-only monitoring' },
+    { name: 'participant', hierarchy: 20, description: 'Join rooms, send audio/video' },
+    { name: 'viewer', hierarchy: 10, description: 'View single stream' }
+  ];
+
+  const mockRolePermissions = [
+    { role: 'super_admin', permission: '*', object_type: 'system' },
+    { role: 'super_admin', permission: '*', object_type: 'room' },
+    { role: 'super_admin', permission: '*', object_type: 'stream' },
+    { role: 'super_admin', permission: '*', object_type: 'user' },
+    { role: 'room_admin', permission: 'create', object_type: 'room' },
+    { role: 'room_admin', permission: 'delete', object_type: 'room' },
+    { role: 'room_admin', permission: 'update', object_type: 'room' },
+    { role: 'room_admin', permission: 'assign', object_type: 'room' },
+    { role: 'room_admin', permission: 'promote', object_type: 'user' },
+    { role: 'moderator', permission: 'mute', object_type: 'room' },
+    { role: 'moderator', permission: 'kick', object_type: 'room' },
+    { role: 'moderator', permission: 'update_settings', object_type: 'room' },
+    { role: 'director', permission: 'view_all', object_type: 'room' },
+    { role: 'director', permission: 'switch_scenes', object_type: 'room' },
+    { role: 'director', permission: 'generate_srt', object_type: 'room' },
+    { role: 'operator', permission: 'view_analytics', object_type: 'system' },
+    { role: 'operator', permission: 'view_monitoring', object_type: 'system' },
+    { role: 'participant', permission: 'join', object_type: 'room' },
+    { role: 'participant', permission: 'send_audio', object_type: 'room' },
+    { role: 'participant', permission: 'send_video', object_type: 'room' },
+    { role: 'participant', permission: 'chat', object_type: 'room' },
+    { role: 'viewer', permission: 'view', object_type: 'stream' },
+    { role: 'viewer', permission: 'generate_srt', object_type: 'stream' },
+    { role: 'viewer', permission: 'view_solo', object_type: 'stream' }
+  ];
+
+  // Mock users
+  const mockUsers = [
+    { id: 'user-super-admin', username: 'superadmin', password_hash: 'hash', role: 'super_admin', display_name: 'Super Admin', email: null },
+    { id: 'user-moderator', username: 'moderator', password_hash: 'hash', role: 'moderator', display_name: 'Moderator', email: null },
+    { id: 'user-viewer', username: 'viewer', password_hash: 'hash', role: 'viewer', display_name: 'Viewer', email: null },
+    { id: 'user-room-admin', username: 'roomadmin', password_hash: 'hash', role: 'room_admin', display_name: 'Room Admin', email: null }
+  ];
+
+  // In-memory storage for OLAManager data (room_assignments and stream_access tables)
+  const mockRoomAssignments = new Map();
+  const mockStreamAccess = new Map();
+
+  beforeEach(async () => {
+    // Reset all mocks and in-memory storage
+    jest.clearAllMocks();
+    mockRoomAssignments.clear();
+    mockStreamAccess.clear();
+
+    // Set DATABASE_URL for initialization
+    process.env.DATABASE_URL = 'postgres://test:test@localhost:5432/test';
+
+    // Create Database instance and initialize it
+    db = new Database();
     await db.initialize();
 
-    // Apply seed data for roles and permissions
-    const seedData = `
-      INSERT INTO roles (name, hierarchy, description) VALUES
-        ('super_admin', 100, 'Full system access'),
-        ('room_admin', 80, 'Create and manage own rooms'),
-        ('moderator', 60, 'Manage participants in assigned rooms'),
-        ('director', 50, 'View and control streams'),
-        ('operator', 40, 'Read-only monitoring'),
-        ('participant', 20, 'Join rooms, send audio/video'),
-        ('viewer', 10, 'View single stream');
+    // Get the mock pool from the Pool constructor
+    const { Pool } = require('pg');
+    mockPool = Pool();
 
-      INSERT INTO role_permissions (role, permission, object_type) VALUES
-        ('super_admin', '*', 'system'),
-        ('super_admin', '*', 'room'),
-        ('super_admin', '*', 'stream'),
-        ('super_admin', '*', 'user'),
-        ('room_admin', 'create', 'room'),
-        ('room_admin', 'delete', 'room'),
-        ('room_admin', 'update', 'room'),
-        ('room_admin', 'assign', 'room'),
-        ('room_admin', 'promote', 'user'),
-        ('moderator', 'mute', 'room'),
-        ('moderator', 'kick', 'room'),
-        ('moderator', 'update_settings', 'room'),
-        ('director', 'view_all', 'room'),
-        ('director', 'switch_scenes', 'room'),
-        ('director', 'generate_srt', 'room'),
-        ('operator', 'view_analytics', 'system'),
-        ('operator', 'view_monitoring', 'system'),
-        ('participant', 'join', 'room'),
-        ('participant', 'send_audio', 'room'),
-        ('participant', 'send_video', 'room'),
-        ('participant', 'chat', 'room'),
-        ('viewer', 'view', 'stream'),
-        ('viewer', 'generate_srt', 'stream'),
-        ('viewer', 'view_solo', 'stream');
-    `;
-    await db.db.exec(seedData);
+    // Setup RBAC seed data mocks
+    // RBAC.initialize() calls getAllRoles() then getPermissionsForRole() for each role
+    mockPool.query.mockResolvedValueOnce({ rows: mockRoles });
+    mockRoles.forEach(role => {
+      const permissions = mockRolePermissions.filter(p => p.role === role.name);
+      mockPool.query.mockResolvedValueOnce({ rows: permissions });
+    });
 
-    // Create test users
-    const users = [
-      { id: 'user-super-admin', username: 'superadmin', password_hash: 'hash', role: 'super_admin' },
-      { id: 'user-moderator', username: 'moderator', password_hash: 'hash', role: 'moderator' },
-      { id: 'user-viewer', username: 'viewer', password_hash: 'hash', role: 'viewer' },
-      { id: 'user-room-admin', username: 'roomadmin', password_hash: 'hash', role: 'room_admin' }
-    ];
-    for (const user of users) {
-      await db.insertUser(user);
-    }
+    // Mock database queries for OLAManager operations
+    mockPool.query.mockImplementation((query, params) => {
+      const queryLower = query.toLowerCase();
+
+      // getUserById
+      if (queryLower.includes('select * from users where id =')) {
+        const userId = params[0];
+        const user = mockUsers.find(u => u.id === userId);
+        return Promise.resolve({ rows: user ? [user] : [] });
+      }
+
+      // getRole
+      if (queryLower.includes('select * from roles where name =') && !queryLower.includes('role_permissions')) {
+        const roleName = params[0];
+        const role = mockRoles.find(r => r.name === roleName);
+        return Promise.resolve({ rows: role ? [role] : [] });
+      }
+
+      // INSERT into room_assignments
+      if (queryLower.includes('insert into room_assignments')) {
+        const assignment = {
+          id: params[0],
+          user_id: params[1],
+          room_id: params[2],
+          assignment_role: params[3],
+          granted_by: params[4],
+          granted_at: params[5],
+          expires_at: params[6]
+        };
+        const key = `${assignment.user_id}:${assignment.room_id}`;
+        mockRoomAssignments.set(key, assignment);
+        return Promise.resolve({ rows: [assignment] });
+      }
+
+      // SELECT from room_assignments by user_id (getRoomAssignmentsForUser)
+      if (queryLower.includes('select') && queryLower.includes('room_assignments') && queryLower.includes('where user_id =')) {
+        const userId = params[0];
+        const results = [];
+        for (const [key, assignment] of mockRoomAssignments.entries()) {
+          if (assignment.user_id === userId) {
+            // Check expiration
+            if (assignment.expires_at && new Date(assignment.expires_at) < new Date()) {
+              continue; // Skip expired
+            }
+            results.push(assignment);
+          }
+        }
+        return Promise.resolve({ rows: results });
+      }
+
+      // SELECT from room_assignments by room_id (getRoomAssignments)
+      if (queryLower.includes('select') && queryLower.includes('room_assignments') && queryLower.includes('where ra.room_id =')) {
+        const roomId = params[0];
+        const results = [];
+        for (const [key, assignment] of mockRoomAssignments.entries()) {
+          if (assignment.room_id === roomId) {
+            if (assignment.expires_at && new Date(assignment.expires_at) < new Date()) {
+              continue; // Skip expired
+            }
+            results.push(assignment);
+          }
+        }
+        return Promise.resolve({ rows: results });
+      }
+
+      // DELETE from room_assignments
+      if (queryLower.includes('delete from room_assignments')) {
+        const userId = params[0];
+        const roomId = params[1];
+        const key = `${userId}:${roomId}`;
+        const deleted = mockRoomAssignments.delete(key);
+        return Promise.resolve({ rows: [], rowCount: deleted ? 1 : 0 });
+      }
+
+      // INSERT into stream_access
+      if (queryLower.includes('insert into stream_access')) {
+        const access = {
+          id: params[0],
+          user_id: params[1],
+          stream_id: params[2],
+          granted_by: params[3],
+          granted_at: params[4],
+          expires_at: params[5]
+        };
+        const key = `${access.user_id}:${access.stream_id}`;
+        mockStreamAccess.set(key, access);
+        return Promise.resolve({ rows: [access] });
+      }
+
+      // SELECT from stream_access (getStreamAccessForUser)
+      if (queryLower.includes('select') && queryLower.includes('stream_access') && queryLower.includes('where user_id =')) {
+        const userId = params[0];
+        const results = [];
+        for (const [key, access] of mockStreamAccess.entries()) {
+          if (access.user_id === userId) {
+            // Check expiration
+            if (access.expires_at && new Date(access.expires_at) < new Date()) {
+              continue; // Skip expired
+            }
+            results.push(access);
+          }
+        }
+        return Promise.resolve({ rows: results });
+      }
+
+      // DELETE from stream_access
+      if (queryLower.includes('delete from stream_access')) {
+        const userId = params[0];
+        const streamId = params[1];
+        const key = `${userId}:${streamId}`;
+        const deleted = mockStreamAccess.delete(key);
+        return Promise.resolve({ rows: [], rowCount: deleted ? 1 : 0 });
+      }
+
+      return Promise.resolve({ rows: [] });
+    });
 
     rbac = new RBACManager(db);
     await rbac.initialize();
@@ -68,8 +225,10 @@ describe('OLAManager', () => {
     await olaManager.initialize();
   });
 
-  afterAll(async () => {
-    if (db) await db.close();
+  afterEach(async () => {
+    if (db && db.pool) {
+      await db.shutdown();
+    }
   });
 
   describe('assignRoom', () => {

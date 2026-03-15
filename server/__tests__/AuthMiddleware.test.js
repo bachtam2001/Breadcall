@@ -3,6 +3,24 @@ const Database = require('../src/database');
 const RBACManager = require('../src/RBACManager');
 const crypto = require('crypto');
 
+// Mock the pg package
+jest.mock('pg', () => {
+  const mockClient = {
+    release: jest.fn().mockResolvedValue(),
+    query: jest.fn()
+  };
+
+  const mockPool = {
+    connect: jest.fn().mockResolvedValue(mockClient),
+    query: jest.fn(),
+    end: jest.fn().mockResolvedValue()
+  };
+
+  return {
+    Pool: jest.fn().mockImplementation(() => mockPool)
+  };
+});
+
 // Mock TokenManager to avoid Redis dependency in tests
 class MockTokenManager {
   constructor() {
@@ -43,34 +61,69 @@ describe('AuthMiddleware', () => {
   let db;
   let rbac;
   let tokenManager;
+  let mockPool;
 
-  beforeAll(async () => {
-    db = new Database(':memory:');
+  // Mock data for roles and permissions
+  const mockRoles = [
+    { name: 'super_admin', hierarchy: 100, description: 'Full system access' },
+    { name: 'room_admin', hierarchy: 80, description: 'Create and manage own rooms' },
+    { name: 'moderator', hierarchy: 60, description: 'Manage participants in assigned rooms' },
+    { name: 'participant', hierarchy: 20, description: 'Join rooms, send audio/video' }
+  ];
+
+  const mockRolePermissions = [
+    { role: 'super_admin', permission: '*', object_type: 'system' },
+    { role: 'super_admin', permission: '*', object_type: 'room' },
+    { role: 'super_admin', permission: '*', object_type: 'stream' },
+    { role: 'super_admin', permission: '*', object_type: 'user' },
+    { role: 'participant', permission: 'join', object_type: 'room' },
+    { role: 'participant', permission: 'send_audio', object_type: 'room' },
+    { role: 'participant', permission: 'send_video', object_type: 'room' }
+  ];
+
+  // Mock users
+  const mockUsers = [
+    { id: 'user-super-admin', username: 'superadmin', password_hash: 'hash', role: 'super_admin', display_name: 'Super Admin', email: null },
+    { id: 'user-participant', username: 'participant', password_hash: 'hash', role: 'participant', display_name: 'Participant', email: null }
+  ];
+
+  beforeEach(async () => {
+    // Reset all mocks
+    jest.clearAllMocks();
+
+    // Set DATABASE_URL for initialization
+    process.env.DATABASE_URL = 'postgres://test:test@localhost:5432/test';
+
+    // Create Database instance and initialize it
+    db = new Database();
     await db.initialize();
 
-    await db.db.exec(`
-      INSERT INTO roles (name, hierarchy, description) VALUES
-        ('super_admin', 100, 'Full system access'),
-        ('room_admin', 80, 'Create and manage own rooms'),
-        ('moderator', 60, 'Manage participants in assigned rooms'),
-        ('participant', 20, 'Join rooms, send audio/video');
+    // Get the mock pool from the Pool constructor
+    const { Pool } = require('pg');
+    mockPool = Pool();
 
-      INSERT INTO role_permissions (role, permission, object_type) VALUES
-        ('super_admin', '*', 'system'),
-        ('super_admin', '*', 'room'),
-        ('super_admin', '*', 'stream'),
-        ('super_admin', '*', 'user'),
-        ('participant', 'join', 'room'),
-        ('participant', 'send_audio', 'room'),
-        ('participant', 'send_video', 'room');
-    `);
+    // Setup RBAC seed data mocks
+    // RBAC.initialize() calls getAllRoles() then getPermissionsForRole() for each role
+    mockPool.query.mockResolvedValueOnce({ rows: mockRoles });
+    mockRoles.forEach(role => {
+      const permissions = mockRolePermissions.filter(p => p.role === role.name);
+      mockPool.query.mockResolvedValueOnce({ rows: permissions });
+    });
 
-    // Create test users
-    await db.db.exec(`
-      INSERT INTO users (id, username, password_hash, role, display_name) VALUES
-        ('user-super-admin', 'superadmin', 'hash', 'super_admin', 'Super Admin'),
-        ('user-participant', 'participant', 'hash', 'participant', 'Participant');
-    `);
+    // Mock getUserByUsername and getUserById calls - return appropriate user based on query
+    mockPool.query.mockImplementation((query, params) => {
+      if (query && query.includes('SELECT * FROM users WHERE username =')) {
+        const username = params[0];
+        const user = mockUsers.find(u => u.username === username);
+        return Promise.resolve({ rows: user ? [user] : [] });
+      }
+      if (query && query.includes('SELECT * FROM users WHERE id =')) {
+        const userId = params[0];
+        const user = mockUsers.find(u => u.id === userId);
+        return Promise.resolve({ rows: user ? [user] : [] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
 
     rbac = new RBACManager(db);
     await rbac.initialize();
@@ -81,8 +134,10 @@ describe('AuthMiddleware', () => {
     authMiddleware = new AuthMiddleware(db, rbac, tokenManager);
   });
 
-  afterAll(async () => {
-    if (db) await db.close();
+  afterEach(async () => {
+    if (db && db.pool) {
+      await db.shutdown();
+    }
   });
 
   describe('authenticate', () => {
