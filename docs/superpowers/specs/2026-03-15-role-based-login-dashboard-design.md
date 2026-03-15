@@ -63,8 +63,8 @@ Redirect based on role:
 |------|-------------|-------------|
 | super_admin | `/admin` | Full admin panel (all rooms, users, system settings) |
 | room_admin | `/admin` | Admin panel (own rooms only, filtered by permissions) |
-| director | `/director` | Director dashboard listing assigned rooms |
-| moderator | `/moderator` | Moderator panel for assigned rooms |
+| director | `/director-dashboard` | Director dashboard listing assigned rooms |
+| moderator | `/moderator-dashboard` | Moderator panel for assigned rooms |
 | operator | `/monitoring` | System monitoring dashboard |
 | participant | N/A | No login needed - direct room access |
 | viewer | N/A | No login needed - direct room/stream access |
@@ -107,7 +107,7 @@ Redirect based on role:
   - Logout button
 
 **Navigation:**
-- Click room → navigate to `/director/:roomId`
+- Click room → navigate to `/view/:roomId/director` (existing director view)
 - Room director view uses existing DirectorView.js component
 
 ### 3. ModeratorDashboard (`/moderator`)
@@ -120,7 +120,6 @@ Redirect based on role:
 - Room cards showing:
   - Room name/ID
   - Active participant count
-  - Quick moderation actions
 - "Enter Moderation" button per room
 - Navbar with user info and logout
 
@@ -240,7 +239,6 @@ Director and moderator dashboards query their assignments via `getUserRoomAssign
       "roomId": "ABCD",
       "name": "Production Room",
       "participantCount": 5,
-      "isLive": true,
       "assignmentRole": "director"
     }
   ]
@@ -252,7 +250,14 @@ Director and moderator dashboards query their assignments via `getUserRoomAssign
 {
   "success": true,
   "activeRooms": 12,
-  "totalParticipants": 45,
+  "totalParticipants": 45
+}
+```
+
+`GET /api/monitoring/rooms`:
+```json
+{
+  "success": true,
   "rooms": [
     {
       "roomId": "ABCD",
@@ -271,16 +276,25 @@ Director and moderator dashboards query their assignments via `getUserRoomAssign
 
 ## Server Implementation
 
-**Modify `server/src/index.js`:**
-- Add route handler for `GET /api/user/rooms`
-  - Use `OLAManager.getUserRoomAssignments(req.user.id)` to get assignments
-  - Join with RoomManager data for participant counts
-  - Return filtered room list
+**Create new route files:**
 
-- Add route handler for `GET /api/monitoring/status`
-  - Use RoomManager to get all active rooms
-  - Aggregate participant counts
-  - Return system-wide stats (operator role only)
+1. **`server/src/routes/user.js`** - User-specific routes
+   - `GET /api/user/rooms` - Returns rooms assigned to current user
+     - Use `OLAManager.getUserRoomAssignments(req.user.id)`
+     - Join with RoomManager data for participant counts
+     - Filter by director/moderator roles
+
+2. **`server/src/routes/monitoring.js`** - Operator monitoring routes
+   - `GET /api/monitoring/status` - System-wide stats
+   - `GET /api/monitoring/rooms` - Detailed room list
+   - Restrict to operator/super_admin roles
+
+**Modify `server/src/index.js`:**
+- Import and mount new route modules:
+  ```javascript
+  app.use('/api/user', requireAuth(), require('./routes/user'));
+  app.use('/api/monitoring', requireAuth(), require('./routes/monitoring'));
+  ```
 
 ## New Files
 
@@ -326,8 +340,8 @@ const dashboardFiles = [
 ## Navigation Updates
 
 ### Admin Panel (`public/admin.html` + `AdminDashboard.js`)
-- Add "Director View" link if user has director role → `/director`
-- Add "Moderator View" link if user has moderator role → `/moderator`
+- Add "Director View" link if user has director role → `/director-dashboard`
+- Add "Moderator View" link if user has moderator role → `/moderator-dashboard`
 - Add "Monitoring" link if user has operator role → `/monitoring`
 
 ### Landing Page (`public/index.html` + `app.js`)
@@ -380,4 +394,4 @@ const dashboardFiles = [
 - Password reset flow
 - Multi-factor authentication
 - Session timeout warning
-- Role switching (if user has multiple roles)
+- Role switching (for users with multiple roles - e.g., both director and moderator)
