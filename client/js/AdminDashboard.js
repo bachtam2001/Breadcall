@@ -49,6 +49,14 @@ class AdminDashboard {
   }
 
   // =============================================================================
+  // Permission Helpers
+  // =============================================================================
+
+  _hasPermission(permission, objectType = 'room') {
+    return window.authService.hasPermission(permission, objectType);
+  }
+
+  // =============================================================================
   // Room Management
   // =============================================================================
 
@@ -217,7 +225,7 @@ class AdminDashboard {
         '<section class="admin-section">' +
           '<div class="admin-section-header">' +
             '<h2 class="admin-section-title">Active Rooms</h2>' +
-            '<button class="btn btn-primary" id="create-room-btn">+ Create Room</button>' +
+            (this._hasPermission('create', 'room') ? '<button class="btn btn-primary" id="create-room-btn">+ Create Room</button>' : '') +
           '</div>' +
           '<div class="rooms-grid" id="rooms-grid">' +
             '<div class="loading-spinner"><div class="spinner"></div></div>' +
@@ -389,7 +397,7 @@ class AdminDashboard {
           '</div>' +
           '<div class="modal-footer">' +
             '<button class="btn btn-secondary" id="cancel-token-btn">Close</button>' +
-            '<button class="btn btn-primary" id="generate-token-btn">Generate Token</button>' +
+            (this._hasPermission('assign', 'room') ? '<button class="btn btn-primary" id="generate-token-btn">Generate Token</button>' : '') +
           '</div>' +
         '</div>' +
       '</div>' +
@@ -457,7 +465,7 @@ class AdminDashboard {
         '<div class="empty-state">' +
           '<div class="empty-state-icon">📹</div>' +
           '<h3 class="empty-state-title">No Active Rooms</h3>' +
-          '<p>Click "Create Room" to get started</p>' +
+          (this._hasPermission('create', 'room') ? '<p>Click "Create Room" to get started</p>' : '<p>No rooms available</p>') +
         '</div>';
       return;
     }
@@ -490,14 +498,14 @@ class AdminDashboard {
             '<span class="room-card-badge"><strong>Codec:</strong> ' + room.codec + '</span>' +
           '</div>' +
           '<div class="room-card-actions">' +
-            '<button class="btn btn-secondary btn-sm view-participants-btn" data-room-id="' + room.id + '">View Participants</button>' +
-            '<button class="btn btn-secondary btn-sm settings-btn" data-room-id="' + room.id + '">Settings</button>' +
-            '<button class="btn btn-secondary btn-sm manage-tokens-btn" data-room-id="' + room.id + '">Manage Tokens</button>' +
+            ((this._hasPermission('view_all', 'room') || this._hasPermission('mute', 'room')) ? '<button class="btn btn-secondary btn-sm view-participants-btn" data-room-id="' + room.id + '">View Participants</button>' : '') +
+            (this._hasPermission('update', 'room') ? '<button class="btn btn-secondary btn-sm settings-btn" data-room-id="' + room.id + '">Settings</button>' : '') +
+            (this._hasPermission('assign', 'room') ? '<button class="btn btn-secondary btn-sm manage-tokens-btn" data-room-id="' + room.id + '">Manage Tokens</button>' : '') +
           '</div>' +
           '<div class="room-card-actions" style="margin-top: var(--space-sm);">' +
-            '<button class="btn btn-accent btn-sm copy-link-btn" data-room-id="' + room.id + '" data-room-password="' + (room.password || '') + '">Copy Link</button>' +
-            '<button class="btn btn-accent btn-sm generate-token-btn" data-room-id="' + room.id + '">Generate Token</button>' +
-            '<button class="btn btn-danger btn-sm delete-room-btn" data-room-id="' + room.id + '">Delete Room</button>' +
+            (this._hasPermission('join', 'room') ? '<button class="btn btn-accent btn-sm copy-link-btn" data-room-id="' + room.id + '" data-room-password="' + (room.password || '') + '">Copy Link</button>' : '') +
+            (this._hasPermission('assign', 'room') ? '<button class="btn btn-accent btn-sm generate-token-btn" data-room-id="' + room.id + '">Generate Token</button>' : '') +
+            (this._hasPermission('delete', 'room') ? '<button class="btn btn-danger btn-sm delete-room-btn" data-room-id="' + room.id + '">Delete Room</button>' : '') +
           '</div>' +
         '</div>';
     }
@@ -795,7 +803,7 @@ class AdminDashboard {
                 '<td>' + (p.isSendingVideo ? '✅' : '❌') + '</td>' +
                 '<td>' + (p.isSendingAudio ? '✅' : '❌') + '</td>' +
                 '<td class="participant-actions-cell">' +
-                  '<button class="btn btn-danger btn-sm kick-btn" data-room-id="' + roomId + '" data-participant-id="' + p.participantId + '">Kick</button>' +
+                  (self._hasPermission('kick', 'room') ? '<button class="btn btn-danger btn-sm kick-btn" data-room-id="' + roomId + '" data-participant-id="' + p.participantId + '">Kick</button>' : '') +
                 '</td>' +
               '</tr>';
           }
