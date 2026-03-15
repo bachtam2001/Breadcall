@@ -12,6 +12,7 @@ if (!fs.existsSync(BUILD_DIR)) {
 
 // Order matters - dependencies first, then main app
 const mainAppFiles = [
+  'AuthService.js',
   'SignalingClient.js',
   'MediaManager.js',
   'UIManager.js',

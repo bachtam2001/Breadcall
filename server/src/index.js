@@ -3,17 +3,21 @@ const http = require('http');
 const WebSocket = require('ws');
 const cors = require('cors');
 const path = require('path');
+const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
 const RoomManager = require('./RoomManager');
 const SignalingHandler = require('./SignalingHandler');
 const AuthMiddleware = require('./AuthMiddleware');
+const Database = require('./database');
+const RBACManager = require('./RBACManager');
+const UserManager = require('./UserManager');
+const TokenManager = require('./TokenManager');
+const RedisClient = require('./RedisClient');
+const bootstrap = require('./bootstrap');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-// Initialize auth middleware
-const authMiddleware = new AuthMiddleware();
 
 // Allowed origins for CORS (loaded from environment variable)
 const allowedOrigins = process.env.ALLOWED_ORIGINS
@@ -40,9 +44,7 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
-
-// Session middleware (must be before routes that use it)
-app.use(authMiddleware.getSessionMiddleware());
+app.use(cookieParser());
 
 // Serve static files in development
 app.use(express.static(path.join(__dirname, '../../client')));
@@ -115,19 +117,18 @@ app.get('/api/webrtc-config', (req, res) => {
   });
 });
 
-// Get session info for auto-rejoin (returns roomId if user has valid token in session)
-app.get('/api/session/room', (req, res) => {
-  if (req.session && req.session.tokens && req.session.roomId) {
-    const roomId = req.session.roomId;
-    const token = req.session.tokens[roomId];
+// Get session info for auto-rejoin (returns roomId if user has valid token in cookie)
+app.get('/api/session/room', async (req, res) => {
+  const jwt = req.cookies?.jwt;
 
+  if (jwt) {
     // Validate token is still valid
-    const validation = roomManager.validateToken(token, 'join');
+    const validation = await tokenManager.validateAccessToken(jwt);
     if (validation.valid) {
       res.json({
         success: true,
         hasRoom: true,
-        roomId
+        roomId: validation.payload.roomId
       });
       return;
     }
@@ -140,33 +141,182 @@ app.get('/api/session/room', (req, res) => {
 });
 
 // =============================================================================
+// Auth API Routes (general user authentication)
+// =============================================================================
+
+// User login - authenticate user and return JWT token
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Username and password required'
+      });
+    }
+
+    // Authenticate user credentials
+    const authResult = await userManager.authenticateUser(username, password);
+
+    if (!authResult.success) {
+      return res.status(401).json({
+        success: false,
+        error: authResult.error || 'Invalid credentials'
+      });
+    }
+
+    // Determine token type based on user role
+    const tokenType = authResult.user.role === 'super_admin' ? 'admin_token' : 'room_access';
+
+    // Generate JWT token pair
+    const tokenResult = await tokenManager.generateTokenPair({
+      type: tokenType,
+      roomId: 'admin',
+      userId: authResult.user.id,
+      permissions: authResult.user.role === 'super_admin'
+        ? ['admin', 'create', 'delete', 'manage']
+        : ['join', 'send-audio', 'send-video', 'chat']
+    });
+
+    // Set JWT in HttpOnly cookie
+    res.cookie('jwt', tokenResult.accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: tokenResult.expiresIn * 1000
+    });
+
+    res.json({
+      success: true,
+      user: {
+        id: authResult.user.id,
+        username: authResult.user.username,
+        role: authResult.user.role,
+        displayName: authResult.user.displayName
+      },
+      tokenId: tokenResult.tokenId,
+      expiresIn: tokenResult.expiresIn
+    });
+  } catch (error) {
+    console.error('[API] Login error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Login failed'
+    });
+  }
+});
+
+// User logout - clear JWT cookie
+app.post('/api/auth/logout', (req, res) => {
+  res.clearCookie('jwt');
+  res.json({ success: true });
+});
+
+// Get current user info
+app.get('/api/auth/me', authMiddleware.requireAuth(), (req, res) => {
+  res.json({
+    success: true,
+    user: {
+      id: req.user.id,
+      username: req.user.username,
+      role: req.user.role,
+      displayName: req.user.displayName,
+      permissions: req.user.permissions
+    }
+  });
+});
+
+// =============================================================================
 // Admin API Routes
 // =============================================================================
 
-// Admin login
-app.post('/api/admin/login', (req, res) => {
-  console.log('[API] Admin login attempt');
-  authMiddleware.login(req, res);
+// Admin login - authenticate user and return JWT token
+app.post('/api/admin/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Username and password required'
+      });
+    }
+
+    // Authenticate user credentials
+    const authResult = await userManager.authenticateUser(username, password);
+
+    if (!authResult.success) {
+      return res.status(401).json({
+        success: false,
+        error: authResult.error || 'Invalid credentials'
+      });
+    }
+
+    // Generate JWT token pair
+    const tokenResult = await tokenManager.generateTokenPair({
+      type: 'admin_token',
+      roomId: 'admin',
+      userId: authResult.user.id,
+      permissions: ['admin', 'create', 'delete', 'manage']
+    });
+
+    // Set JWT in HttpOnly cookie
+    res.cookie('jwt', tokenResult.accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: tokenResult.expiresIn * 1000
+    });
+
+    res.json({
+      success: true,
+      user: {
+        id: authResult.user.id,
+        username: authResult.user.username,
+        role: authResult.user.role,
+        displayName: authResult.user.displayName
+      },
+      tokenId: tokenResult.tokenId,
+      expiresIn: tokenResult.expiresIn
+    });
+  } catch (error) {
+    console.error('[API] Login error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Login failed'
+    });
+  }
 });
 
-// Admin logout
+// Admin logout - clear JWT cookie
 app.post('/api/admin/logout', (req, res) => {
-  authMiddleware.logout(req, res);
+  res.clearCookie('jwt');
+  res.json({ success: true });
 });
 
 // Get current admin status
-app.get('/api/admin/me', (req, res) => {
-  authMiddleware.getCurrentUser(req, res);
+app.get('/api/admin/me', authMiddleware.requireAuth(), (req, res) => {
+  res.json({
+    success: true,
+    user: {
+      id: req.user.id,
+      username: req.user.username,
+      role: req.user.role,
+      displayName: req.user.displayName,
+      permissions: req.user.permissions
+    }
+  });
 });
 
 // List all rooms (admin only)
-app.get('/api/admin/rooms', authMiddleware.isAuthenticated.bind(authMiddleware), (req, res) => {
+app.get('/api/admin/rooms', authMiddleware.requireAuth(), (req, res) => {
   const rooms = roomManager.getAllRooms();
   res.json({ success: true, rooms });
 });
 
 // Get room participants (admin only)
-app.get('/api/admin/rooms/:roomId/participants', authMiddleware.isAuthenticated.bind(authMiddleware), (req, res) => {
+app.get('/api/admin/rooms/:roomId/participants', authMiddleware.requireAuth(), (req, res) => {
   const room = roomManager.getRoom(req.params.roomId);
   if (!room) {
     return res.status(404).json({ success: false, error: 'Room not found' });
@@ -188,7 +338,7 @@ app.get('/api/admin/rooms/:roomId/participants', authMiddleware.isAuthenticated.
 });
 
 // Create room (admin only)
-app.post('/api/admin/rooms', authMiddleware.isAuthenticated.bind(authMiddleware), (req, res) => {
+app.post('/api/admin/rooms', authMiddleware.requireAuth(), (req, res) => {
   try {
     const { password, maxParticipants = 10, quality = 'hd', codec = 'H264' } = req.body;
     const room = roomManager.createRoom({
@@ -215,7 +365,7 @@ app.post('/api/admin/rooms', authMiddleware.isAuthenticated.bind(authMiddleware)
 });
 
 // Delete room (admin only)
-app.delete('/api/admin/rooms/:roomId', authMiddleware.isAuthenticated.bind(authMiddleware), (req, res) => {
+app.delete('/api/admin/rooms/:roomId', authMiddleware.requireAuth(), (req, res) => {
   const deleted = roomManager.deleteRoom(req.params.roomId);
   if (!deleted) {
     return res.status(404).json({ success: false, error: 'Room not found' });
@@ -224,7 +374,7 @@ app.delete('/api/admin/rooms/:roomId', authMiddleware.isAuthenticated.bind(authM
 });
 
 // Update room settings (admin only)
-app.put('/api/admin/rooms/:roomId/settings', authMiddleware.isAuthenticated.bind(authMiddleware), (req, res) => {
+app.put('/api/admin/rooms/:roomId/settings', authMiddleware.requireAuth(), (req, res) => {
   const room = roomManager.getRoom(req.params.roomId);
   if (!room) {
     return res.status(404).json({ success: false, error: 'Room not found' });
@@ -271,7 +421,7 @@ app.put('/api/admin/rooms/:roomId/settings', authMiddleware.isAuthenticated.bind
 /**
  * Generate token
  */
-app.post('/api/tokens', authMiddleware.isAuthenticated.bind(authMiddleware), async (req, res) => {
+app.post('/api/tokens', authMiddleware.requireAuth(), async (req, res) => {
   try {
     const { type, roomId, options = {} } = req.body;
 
@@ -305,15 +455,17 @@ app.post('/api/tokens', authMiddleware.isAuthenticated.bind(authMiddleware), asy
       options.expiresAt = Date.now() + (expiryDefaults[type] * 1000);
     }
 
-    // Generate token
-    const token = roomManager.generateToken(roomId, type, {
-      ...options,
-      issuedBy: req.session?.admin?.id || 'api'
+    // Generate token using TokenManager
+    const tokenResult = await tokenManager.generateTokenPair({
+      type,
+      roomId,
+      userId: req.user.id,
+      permissions: options.permissions || []
     });
 
     // Build shareable URL (using new HTML5 History API format, not hash)
     const baseUrl = getTokenBaseUrl(type, roomId);
-    const fullUrl = `${req.protocol}://${req.get('host')}${baseUrl}?token=${token}`;
+    const fullUrl = `${req.protocol}://${req.get('host')}${baseUrl}?token=${tokenResult.accessToken}`;
 
     // Generate QR code if requested
     let qrCode = null;
@@ -324,7 +476,8 @@ app.post('/api/tokens', authMiddleware.isAuthenticated.bind(authMiddleware), asy
 
     res.json({
       success: true,
-      token,
+      tokenId: tokenResult.tokenId,
+      accessToken: tokenResult.accessToken,
       expiresAt: options.expiresAt,
       url: fullUrl,
       qrCode
@@ -369,7 +522,7 @@ app.post('/api/tokens/validate', async (req, res) => {
 /**
  * Revoke token
  */
-app.delete('/api/tokens/:tokenId', authMiddleware.isAuthenticated.bind(authMiddleware), (req, res) => {
+app.delete('/api/tokens/:tokenId', authMiddleware.requireAuth(), (req, res) => {
   const { tokenId } = req.params;
 
   if (roomManager.revokeToken(tokenId)) {
@@ -382,7 +535,7 @@ app.delete('/api/tokens/:tokenId', authMiddleware.isAuthenticated.bind(authMiddl
 /**
  * List tokens for a room (admin only)
  */
-app.get('/api/admin/rooms/:roomId/tokens', authMiddleware.isAuthenticated.bind(authMiddleware), (req, res) => {
+app.get('/api/admin/rooms/:roomId/tokens', authMiddleware.requireAuth(), (req, res) => {
   const { roomId } = req.params;
   const room = roomManager.getRoom(roomId);
 
@@ -458,25 +611,20 @@ const wss = new WebSocket.Server({ server, path: '/ws' });
 const roomManager = new RoomManager();
 const signalingHandler = new SignalingHandler(roomManager, wss);
 
-// Parse session from cookie for WebSocket connections
-const parseSessionFromCookie = (cookie) => {
+// Initialize database, RBAC, and user management
+const db = new Database();
+let authMiddleware = null;
+
+// Parse token from cookie for WebSocket connections
+const parseTokenFromCookie = (cookie) => {
   if (!cookie) return null;
 
-  // Extract connect.sid from cookie string
-  const match = cookie.match(/connect\.sid=([^;]+)/);
+  // Extract jwt from cookie string
+  const match = cookie.match(/jwt=([^;]+)/);
   if (!match) return null;
 
-  // URL decode the session ID
-  const sessionId = decodeURIComponent(match[1]);
-
-  // Get session from middleware's store
-  const sessionStore = authMiddleware.getSessionMiddleware().store;
-  return new Promise((resolve, reject) => {
-    sessionStore.get(sessionId, (err, session) => {
-      if (err) reject(err);
-      else resolve(session);
-    });
-  });
+  // URL decode the token
+  return decodeURIComponent(match[1]);
 };
 
 // Handle WebSocket connections
@@ -489,13 +637,13 @@ wss.on('connection', async (ws, req) => {
     return;
   }
 
-  // Parse session from cookie
+  // Parse token from cookie
   const cookie = req.headers.cookie;
-  const session = await parseSessionFromCookie(cookie);
+  const token = parseTokenFromCookie(cookie);
 
-  console.log(`[WebSocket] New connection from ${origin || 'unknown origin'}${session ? ' (authenticated)' : ' (no session)'}`);
+  console.log(`[WebSocket] New connection from ${origin || 'unknown origin'}${token ? ' (has token)' : ' (no token)'}`);
 
-  signalingHandler.handleConnection(ws, session);
+  signalingHandler.handleConnection(ws, token);
 
   ws.on('message', (message) => {
     try {
@@ -519,8 +667,41 @@ wss.on('connection', async (ws, req) => {
 });
 
 // Start server
-server.listen(PORT, () => {
-  console.log(`
+async function startServer() {
+  try {
+    // Initialize database
+    await db.initialize();
+
+    // Load seed data (roles and permissions)
+    const seedFilePath = path.join(__dirname, '../database/seed/001-roles-permissions.sql');
+    await db.loadSeedData(seedFilePath);
+
+    // Initialize RBAC Manager
+    const rbacManager = new RBACManager(db);
+    await rbacManager.initialize();
+
+    // Initialize UserManager
+    const userManager = new UserManager(db, rbacManager);
+    await userManager.initialize();
+
+    // Initialize Redis Client
+    const redisClient = new RedisClient();
+    await redisClient.connect();
+
+    // Initialize TokenManager
+    const tokenManager = new TokenManager(redisClient, db);
+    await tokenManager.initialize();
+
+    // Initialize AuthMiddleware with dependencies
+    authMiddleware = new AuthMiddleware(db, rbacManager, tokenManager);
+
+    // Run bootstrap to create super admin if needed
+    await bootstrap();
+
+    console.log('[Server] All managers initialized');
+
+    server.listen(PORT, () => {
+      console.log(`
 ╔════════════════════════════════════════════════════════╗
 ║           BreadCall Signaling Server                   ║
 ╠════════════════════════════════════════════════════════╣
@@ -529,7 +710,14 @@ server.listen(PORT, () => {
 ║  Environment:  ${process.env.NODE_ENV || 'development'}                           ║
 ╚════════════════════════════════════════════════════════╝
   `);
-});
+    });
+  } catch (error) {
+    console.error('[Server] Failed to start:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
