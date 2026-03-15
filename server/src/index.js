@@ -695,7 +695,7 @@ async function startServer() {
     await db.loadSeedData(seedFilePath);
 
     // Initialize RBAC Manager
-    const rbacManager = new RBACManager(db);
+    const rbacManager = new RBACManager(db, redisClient);
     await rbacManager.initialize();
 
     // Initialize UserManager

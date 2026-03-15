@@ -9,7 +9,7 @@ async function bootstrap() {
     await db.initialize();
     console.log('[Bootstrap] Database initialized');
 
-    const rbac = new RBACManager(db);
+    const rbac = new RBACManager(db, null); // No Redis in bootstrap
     await rbac.initialize();
 
     const userManager = new UserManager(db, rbac);

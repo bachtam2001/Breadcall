@@ -1,19 +1,84 @@
 class RBACManager {
-  constructor(database) {
+  constructor(database, redisClient) {
     this.db = database;
+    this.redis = redisClient;
     this.roleCache = new Map();
+    this.permissionsCacheTtl = 60 * 60; // 1 hour
   }
 
   async initialize() {
+    // Try to load from Redis cache first
+    if (this._isRedisAvailable()) {
+      const cachedRoles = await this.redis.getJson('rbac:roles');
+      if (cachedRoles && cachedRoles.length > 0) {
+        for (const role of cachedRoles) {
+          this.roleCache.set(role.name, role);
+        }
+        console.log(`[RBACManager] Loaded ${this.roleCache.size} roles from Redis cache`);
+        return;
+      }
+    }
+
+    // Load from database
     const roles = await this.db.getAllRoles();
     for (const role of roles) {
       const permissions = await this.db.getPermissionsForRole(role.name);
-      this.roleCache.set(role.name, {
+      const roleData = {
         ...role,
         permissions
-      });
+      };
+      this.roleCache.set(role.name, roleData);
     }
+
+    // Cache in Redis
+    if (this._isRedisAvailable()) {
+      await this.redis.setJson('rbac:roles', Array.from(this.roleCache.values()), this.permissionsCacheTtl);
+    }
+
     console.log(`[RBACManager] Initialized with ${this.roleCache.size} roles`);
+  }
+
+  /**
+   * Check if Redis is available
+   */
+  _isRedisAvailable() {
+    return this.redis && this.redis.isReady && this.redis.isReady();
+  }
+
+  /**
+   * Invalidate RBAC cache (called when permissions change)
+   */
+  async invalidateCache() {
+    if (this._isRedisAvailable()) {
+      await this.redis.del('rbac:roles');
+    }
+    this.roleCache.clear();
+  }
+
+  /**
+   * Reload roles from database and update cache
+   */
+  async reloadRoles() {
+    // Clear existing cache
+    this.roleCache.clear();
+
+    // Load from database
+    const roles = await this.db.getAllRoles();
+    for (const role of roles) {
+      const permissions = await this.db.getPermissionsForRole(role.name);
+      const roleData = {
+        ...role,
+        permissions
+      };
+      this.roleCache.set(role.name, roleData);
+    }
+
+    // Update Redis cache
+    if (this._isRedisAvailable()) {
+      await this.redis.setJson('rbac:roles', Array.from(this.roleCache.values()), this.permissionsCacheTtl);
+    }
+
+    console.log(`[RBACManager] Reloaded ${this.roleCache.size} roles`);
   }
 
   /**
