@@ -14,7 +14,10 @@ const RBACManager = require('./RBACManager');
 const UserManager = require('./UserManager');
 const TokenManager = require('./TokenManager');
 const RedisClient = require('./RedisClient');
+const OLAManager = require('./OLAManager');
 const bootstrap = require('./bootstrap');
+const createUserRouter = require('./routes/user');
+const createMonitoringRouter = require('./routes/monitoring');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -632,6 +635,7 @@ let authMiddleware = null;
 let userManager = null;
 let tokenManager = null;
 let redisClient = null;
+let olaManager = null;
 
 // Parse token from cookie for WebSocket connections
 const parseTokenFromCookie = (cookie) => {
@@ -712,6 +716,16 @@ async function startServer() {
 
     // Initialize AuthMiddleware with dependencies
     authMiddleware = new AuthMiddleware(db, rbacManager, tokenManager);
+
+    // Initialize OLAManager
+    olaManager = new OLAManager(db, rbacManager);
+    await olaManager.initialize();
+
+    // Mount user routes with auth middleware
+    app.use('/api/user', requireAuth(), createUserRouter(olaManager, roomManager));
+
+    // Mount monitoring routes with auth middleware
+    app.use('/api/monitoring', requireAuth(), createMonitoringRouter(roomManager));
 
     // Run bootstrap to create super admin if needed
     await bootstrap();
