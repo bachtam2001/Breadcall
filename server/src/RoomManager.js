@@ -139,7 +139,7 @@ class RoomManager {
           type: 'room_access',
           roomId,
           userId: participantId,
-          permissions: ['join', 'send-audio', 'send-video', 'chat']
+          permissions: ['join', 'send_audio', 'send_video', 'chat']
         });
         result.token = tokenPair.accessToken;
         result.tokenId = tokenPair.tokenId;
@@ -620,15 +620,15 @@ class RoomManager {
   _getDefaultPermissions(type) {
     switch (type) {
       case 'room_access':
-        return ['join', 'send-audio', 'send-video', 'chat'];
+        return ['join', 'send_audio', 'send_video', 'chat'];
       case 'director_access':
-        return ['view-all', 'mute-participant', 'room-settings'];
+        return ['view_all', 'mute', 'room_settings'];
       case 'stream_access':
         return ['view'];
       case 'action_token':
         return ['execute'];
       case 'admin_token':
-        return ['create-room', 'delete-room', 'list-all', 'manage-users'];
+        return ['create', 'delete', 'update', 'assign'];
       default:
         return [];
     }

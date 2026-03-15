@@ -31,8 +31,8 @@ class DirectorView {
   async handleTokenBasedAccess(token) {
     try {
       const signaling = new SignalingClient();
-      // Validate token with 'view-all' permission for director access
-      const validation = await signaling.validateToken(token, 'view-all');
+      // Validate token with 'view_all' permission for director access
+      const validation = await signaling.validateToken(token, 'view_all');
 
       if (!validation.valid) {
         console.error('[Director] Token validation failed:', validation.reason);

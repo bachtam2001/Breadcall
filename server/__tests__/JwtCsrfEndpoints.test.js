@@ -427,7 +427,7 @@ describe('JWT and CSRF Endpoints', () => {
           type: 'room_access',
           roomId: 'ABC123',
           userId: 'user-123',
-          permissions: ['join', 'send-audio']
+          permissions: ['join', 'send_audio']
         }
       });
     });

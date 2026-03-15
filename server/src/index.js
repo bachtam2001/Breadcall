@@ -186,8 +186,8 @@ app.post('/api/auth/login', async (req, res) => {
       roomId: 'admin',
       userId: authResult.user.id,
       permissions: authResult.user.role === 'super_admin'
-        ? ['admin', 'create', 'delete', 'manage']
-        : ['join', 'send-audio', 'send-video', 'chat']
+        ? ['*', 'create', 'delete', 'update', 'assign']
+        : ['join', 'send_audio', 'send_video', 'chat']
     });
 
     // Set JWT in HttpOnly cookie
@@ -264,12 +264,16 @@ app.post('/api/admin/login', async (req, res) => {
       });
     }
 
+    // Get permissions from user's role via RBAC
+    const rolePermissions = await rbacManager.getAllPermissions(authResult.user.role);
+    const permissions = rolePermissions.map(p => p.permission);
+
     // Generate JWT token pair
     const tokenResult = await tokenManager.generateTokenPair({
       type: 'admin_token',
       roomId: 'admin',
       userId: authResult.user.id,
-      permissions: ['admin', 'create', 'delete', 'manage']
+      permissions
     });
 
     // Set JWT in HttpOnly cookie

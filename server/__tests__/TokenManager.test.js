@@ -40,7 +40,7 @@ describe('TokenManager', () => {
         type: 'room_access',
         roomId: 'ABC123',
         userId: 'user-123',
-        permissions: ['join', 'send-audio']
+        permissions: ['join', 'send_audio']
       });
 
       expect(result.accessToken).toBeTruthy();
@@ -261,17 +261,17 @@ describe('TokenManager', () => {
   describe('_getDefaultPermissions', () => {
     test('returns correct permissions for room_access', () => {
       const permissions = tokenManager._getDefaultPermissions('room_access');
-      expect(permissions).toEqual(['join', 'send-audio', 'send-video', 'chat']);
+      expect(permissions).toEqual(['join', 'send_audio', 'send_video', 'chat']);
     });
 
     test('returns correct permissions for director_access', () => {
       const permissions = tokenManager._getDefaultPermissions('director_access');
-      expect(permissions).toEqual(['observe', 'chat']);
+      expect(permissions).toEqual(['view_all', 'mute', 'room_settings']);
     });
 
     test('returns correct permissions for admin_token', () => {
       const permissions = tokenManager._getDefaultPermissions('admin_token');
-      expect(permissions).toEqual(['admin', 'revoke', 'delete-room']);
+      expect(permissions).toEqual(['create', 'delete', 'update', 'assign']);
     });
 
     test('returns empty array for unknown type', () => {

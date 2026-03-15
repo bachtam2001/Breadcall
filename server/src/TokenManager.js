@@ -253,13 +253,13 @@ class TokenManager {
   _getDefaultPermissions(type) {
     switch (type) {
       case 'room_access':
-        return ['join', 'send-audio', 'send-video', 'chat'];
+        return ['join', 'send_audio', 'send_video', 'chat'];
       case 'director_access':
-        return ['observe', 'chat'];
+        return ['view_all', 'mute', 'room_settings'];
       case 'stream_access':
         return ['view'];
       case 'admin_token':
-        return ['admin', 'revoke', 'delete-room'];
+        return ['create', 'delete', 'update', 'assign'];
       default:
         return [];
     }

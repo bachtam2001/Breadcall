@@ -1,0 +1,20 @@
+[TEST] Starting test
+[TEST] About to createApp
+[FETCH] Called with URL: /api/webrtc-config
+[TEST] app created, mockFetch calls: 1
+[TEST] tokenExpiryTime set, calling scheduleTokenRefresh
+[TEST] setTimeout called with delay: 840000
+[TEST] Captured callback with delay: 840000
+[TEST] scheduleTokenRefresh called
+[TEST] All setTimeout delays: [840000]
+[TEST] scheduledCallback defined: true
+[TEST] scheduleCallCount: 1
+[TEST] mockFetch.calls count: 1
+[TEST] About to invoke callback
+[FETCH] Called with URL: /api/csrf-token
+[FETCH] Called with URL: /api/session/room
+[FETCH] Called with URL: /api/tokens/refresh
+[FETCH] tokens/refresh called, count: 1
+[TEST] Callback invoked, mockFetch.calls count now: 4
+[TEST] refreshCallCount: 1
+[TEST] Final refreshCallCount: 1
