@@ -89,6 +89,42 @@ class RedisClient {
     return true;
   }
 
+  async invalidate(pattern) {
+    if (!this.connected) return 0;
+    let cursor = 0;
+    let deletedCount = 0;
+
+    do {
+      const result = await this.client.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+      cursor = result[0];
+      const keys = result[1];
+
+      if (keys.length > 0) {
+        const deleted = await this.client.del(...keys);
+        deletedCount += deleted;
+      }
+    } while (cursor !== 0);
+
+    return deletedCount;
+  }
+
+  async sadd(key, members) {
+    if (!this.connected) return 0;
+    if (!Array.isArray(members)) members = [members];
+    return await this.client.sadd(key, ...members);
+  }
+
+  async srem(key, members) {
+    if (!this.connected) return 0;
+    if (!Array.isArray(members)) members = [members];
+    return await this.client.srem(key, ...members);
+  }
+
+  async smembers(key) {
+    if (!this.connected) return [];
+    return await this.client.smembers(key);
+  }
+
   isReady() {
     return this.connected;
   }
