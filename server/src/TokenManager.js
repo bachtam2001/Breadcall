@@ -83,6 +83,10 @@ class TokenManager {
       exp: iat + this.accessTokenExpiry
     };
 
+    if (payload.olaClaims) {
+      jwtPayload.ola = payload.olaClaims;
+    }
+
     return jwt.sign(jwtPayload, this.tokenSecret, { algorithm: 'HS256' });
   }
 
@@ -99,7 +103,8 @@ class TokenManager {
           type: decoded.type,
           roomId: decoded.roomId,
           userId: decoded.userId,
-          permissions: decoded.permissions
+          permissions: decoded.permissions,
+          ola: decoded.ola || []
         }
       };
     } catch (error) {

@@ -11,7 +11,8 @@ class AdminDashboard {
   }
 
   async init() {
-    await this.checkAuthStatus();
+    // Use AuthService for authentication check
+    this.isLoggedIn = await window.authService.init();
     if (this.isLoggedIn) {
       this.renderDashboard();
       await this.loadRooms();
@@ -25,47 +26,26 @@ class AdminDashboard {
   // =============================================================================
 
   async checkAuthStatus() {
-    try {
-      const response = await fetch('/api/admin/me');
-      const data = await response.json();
-      this.isLoggedIn = data.isAdmin;
-    } catch (error) {
-      console.error('[AdminDashboard] Auth check failed:', error);
-      this.isLoggedIn = false;
-    }
+    return await window.authService.checkAuthStatus();
   }
 
-  async login(password) {
-    try {
-      const response = await fetch('/api/admin/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password })
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        this.isLoggedIn = true;
-        this.renderDashboard();
-        await this.loadRooms();
-        this.showToast('Login successful', 'success');
-      } else {
-        this.showToast(data.error || 'Login failed', 'error');
-      }
-    } catch (error) {
-      this.showToast('Connection error', 'error');
+  async login(username, password) {
+    const result = await window.authService.login(username, password);
+    if (result.success) {
+      this.isLoggedIn = true;
+      this.renderDashboard();
+      await this.loadRooms();
+      this.showToast('Login successful', 'success');
+    } else {
+      this.showToast(result.error || 'Login failed', 'error');
     }
   }
 
   async logout() {
-    try {
-      await fetch('/api/admin/logout', { method: 'POST' });
-      this.isLoggedIn = false;
-      this.renderLogin();
-      this.showToast('Logged out successfully', 'info');
-    } catch (error) {
-      console.error('[AdminDashboard] Logout failed:', error);
-    }
+    await window.authService.logout();
+    this.isLoggedIn = false;
+    this.renderLogin();
+    this.showToast('Logged out successfully', 'info');
   }
 
   // =============================================================================
