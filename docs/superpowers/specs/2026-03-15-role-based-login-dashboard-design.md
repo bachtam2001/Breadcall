@@ -311,7 +311,7 @@ client/js/
   ModeratorDashboard.js   # Moderator room listing
   OperatorDashboard.js    # System monitoring view
 
-css/
+public/css/
   login.min.css           # Login page styles
   dashboard.min.css       # Shared dashboard styles
 ```
