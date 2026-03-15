@@ -57,7 +57,7 @@ class UIManager {
         </div>
 
         <div style="margin-top: 24px; text-align: center;">
-          <a href="/admin" style="color: var(--color-text-secondary); font-size: var(--font-size-sm);">Admin Panel</a>
+          <a href="/login" style="color: var(--color-text-secondary); font-size: var(--font-size-sm);">Staff Login</a>
         </div>
 
         <div id="toast-container" class="toast-container"></div>

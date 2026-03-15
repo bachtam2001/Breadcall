@@ -194,6 +194,22 @@ class AdminDashboard {
   // =============================================================================
 
   renderDashboard() {
+    // Get current user role for conditional navigation
+    const currentUser = window.authService.getCurrentUser();
+    const userRole = currentUser?.role;
+
+    // Build role-based navigation links
+    let roleNavLinks = '';
+    if (userRole === 'director' || userRole === 'super_admin') {
+      roleNavLinks += '<a href="/director-dashboard" class="btn btn-secondary">Director Dashboard</a>';
+    }
+    if (userRole === 'moderator' || userRole === 'super_admin') {
+      roleNavLinks += '<a href="/moderator-dashboard" class="btn btn-secondary">Moderator Dashboard</a>';
+    }
+    if (userRole === 'operator' || userRole === 'super_admin') {
+      roleNavLinks += '<a href="/monitoring" class="btn btn-secondary">Monitoring</a>';
+    }
+
     this.appElement.innerHTML =
       '<div class="admin-dashboard animate-fade-in">' +
         '<header class="admin-header">' +
@@ -202,6 +218,7 @@ class AdminDashboard {
             '<p style="color: var(--color-text-secondary); margin: 0;">Room Management Dashboard</p>' +
           '</div>' +
           '<div class="admin-header-actions">' +
+            roleNavLinks +
             '<a href="/" class="btn btn-secondary">View Public Page</a>' +
             '<button class="btn btn-danger admin-logout-btn" id="admin-logout-btn">Logout</button>' +
           '</div>' +
