@@ -49,6 +49,17 @@ app.use(cookieParser());
 // Serve static files in development
 app.use(express.static(path.join(__dirname, '../../client')));
 
+// Wrapper function for auth middleware that defers initialization until request time
+// This is needed because routes are defined before authMiddleware is initialized
+const requireAuth = () => {
+  return (req, res, next) => {
+    if (!authMiddleware) {
+      return res.status(500).json({ success: false, error: 'Auth middleware not initialized' });
+    }
+    return authMiddleware.requireAuth()(req, res, next);
+  };
+};
+
 // REST API Routes
 
 // Health check
@@ -214,7 +225,7 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 // Get current user info
-app.get('/api/auth/me', authMiddleware.requireAuth(), (req, res) => {
+app.get('/api/auth/me', requireAuth(), (req, res) => {
   res.json({
     success: true,
     user: {
@@ -296,7 +307,7 @@ app.post('/api/admin/logout', (req, res) => {
 });
 
 // Get current admin status
-app.get('/api/admin/me', authMiddleware.requireAuth(), (req, res) => {
+app.get('/api/admin/me', requireAuth(), (req, res) => {
   res.json({
     success: true,
     user: {
@@ -310,13 +321,13 @@ app.get('/api/admin/me', authMiddleware.requireAuth(), (req, res) => {
 });
 
 // List all rooms (admin only)
-app.get('/api/admin/rooms', authMiddleware.requireAuth(), (req, res) => {
+app.get('/api/admin/rooms', requireAuth(), (req, res) => {
   const rooms = roomManager.getAllRooms();
   res.json({ success: true, rooms });
 });
 
 // Get room participants (admin only)
-app.get('/api/admin/rooms/:roomId/participants', authMiddleware.requireAuth(), (req, res) => {
+app.get('/api/admin/rooms/:roomId/participants', requireAuth(), (req, res) => {
   const room = roomManager.getRoom(req.params.roomId);
   if (!room) {
     return res.status(404).json({ success: false, error: 'Room not found' });
@@ -338,7 +349,7 @@ app.get('/api/admin/rooms/:roomId/participants', authMiddleware.requireAuth(), (
 });
 
 // Create room (admin only)
-app.post('/api/admin/rooms', authMiddleware.requireAuth(), (req, res) => {
+app.post('/api/admin/rooms', requireAuth(), (req, res) => {
   try {
     const { password, maxParticipants = 10, quality = 'hd', codec = 'H264' } = req.body;
     const room = roomManager.createRoom({
@@ -365,7 +376,7 @@ app.post('/api/admin/rooms', authMiddleware.requireAuth(), (req, res) => {
 });
 
 // Delete room (admin only)
-app.delete('/api/admin/rooms/:roomId', authMiddleware.requireAuth(), (req, res) => {
+app.delete('/api/admin/rooms/:roomId', requireAuth(), (req, res) => {
   const deleted = roomManager.deleteRoom(req.params.roomId);
   if (!deleted) {
     return res.status(404).json({ success: false, error: 'Room not found' });
@@ -374,7 +385,7 @@ app.delete('/api/admin/rooms/:roomId', authMiddleware.requireAuth(), (req, res) 
 });
 
 // Update room settings (admin only)
-app.put('/api/admin/rooms/:roomId/settings', authMiddleware.requireAuth(), (req, res) => {
+app.put('/api/admin/rooms/:roomId/settings', requireAuth(), (req, res) => {
   const room = roomManager.getRoom(req.params.roomId);
   if (!room) {
     return res.status(404).json({ success: false, error: 'Room not found' });
@@ -421,7 +432,7 @@ app.put('/api/admin/rooms/:roomId/settings', authMiddleware.requireAuth(), (req,
 /**
  * Generate token
  */
-app.post('/api/tokens', authMiddleware.requireAuth(), async (req, res) => {
+app.post('/api/tokens', requireAuth(), async (req, res) => {
   try {
     const { type, roomId, options = {} } = req.body;
 
@@ -522,7 +533,7 @@ app.post('/api/tokens/validate', async (req, res) => {
 /**
  * Revoke token
  */
-app.delete('/api/tokens/:tokenId', authMiddleware.requireAuth(), (req, res) => {
+app.delete('/api/tokens/:tokenId', requireAuth(), (req, res) => {
   const { tokenId } = req.params;
 
   if (roomManager.revokeToken(tokenId)) {
@@ -535,7 +546,7 @@ app.delete('/api/tokens/:tokenId', authMiddleware.requireAuth(), (req, res) => {
 /**
  * List tokens for a room (admin only)
  */
-app.get('/api/admin/rooms/:roomId/tokens', authMiddleware.requireAuth(), (req, res) => {
+app.get('/api/admin/rooms/:roomId/tokens', requireAuth(), (req, res) => {
   const { roomId } = req.params;
   const room = roomManager.getRoom(roomId);
 
@@ -614,6 +625,8 @@ const signalingHandler = new SignalingHandler(roomManager, wss);
 // Initialize database, RBAC, and user management
 const db = new Database();
 let authMiddleware = null;
+let userManager = null;
+let tokenManager = null;
 
 // Parse token from cookie for WebSocket connections
 const parseTokenFromCookie = (cookie) => {
