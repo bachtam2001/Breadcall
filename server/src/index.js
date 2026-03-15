@@ -631,6 +631,7 @@ const db = new Database();
 let authMiddleware = null;
 let userManager = null;
 let tokenManager = null;
+let redisClient = null;
 
 // Parse token from cookie for WebSocket connections
 const parseTokenFromCookie = (cookie) => {
@@ -702,7 +703,7 @@ async function startServer() {
     await userManager.initialize();
 
     // Initialize Redis Client
-    const redisClient = new RedisClient();
+    redisClient = new RedisClient();
     await redisClient.connect();
 
     // Initialize TokenManager
@@ -737,10 +738,22 @@ async function startServer() {
 startServer();
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   console.log('[Server] SIGTERM received, shutting down gracefully...');
-  server.close(() => {
+  server.close(async () => {
     console.log('[Server] Closed out remaining connections');
+
+    // Close database pool
+    if (db) {
+      await db.shutdown();
+    }
+
+    // Close Redis connection
+    if (redisClient) {
+      await redisClient.disconnect();
+    }
+
+    console.log('[Server] Database and Redis connections closed');
     process.exit(0);
   });
 
