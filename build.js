@@ -116,6 +116,81 @@ async function buildDirectorApp() {
   }
 }
 
+async function buildLoginPage() {
+  console.log('Building login page bundle...\n');
+
+  try {
+    await esbuild.build({
+      entryPoints: [path.join(CLIENT_DIR, 'LoginPage.js')],
+      outfile: path.join(BUILD_DIR, 'LoginPage.bundle.min.js'),
+      minify: true,
+      sourcemap: false,
+      bundle: true,
+      format: 'iife',
+      target: 'es2020',
+      define: {
+        'process.env.NODE_ENV': '"production"'
+      },
+      legalComments: 'none'
+    });
+
+    console.log('✓ Built: LoginPage.bundle.min.js');
+  } catch (error) {
+    console.error('Failed to build login page:', error.message);
+    process.exit(1);
+  }
+}
+
+async function buildModeratorDashboard() {
+  console.log('Building moderator dashboard bundle...\n');
+
+  try {
+    await esbuild.build({
+      entryPoints: [path.join(CLIENT_DIR, 'ModeratorDashboard.js')],
+      outfile: path.join(BUILD_DIR, 'ModeratorDashboard.bundle.min.js'),
+      minify: true,
+      sourcemap: false,
+      bundle: true,
+      format: 'iife',
+      target: 'es2020',
+      define: {
+        'process.env.NODE_ENV': '"production"'
+      },
+      legalComments: 'none'
+    });
+
+    console.log('✓ Built: ModeratorDashboard.bundle.min.js');
+  } catch (error) {
+    console.error('Failed to build moderator dashboard:', error.message);
+    process.exit(1);
+  }
+}
+
+async function buildOperatorDashboard() {
+  console.log('Building operator dashboard bundle...\n');
+
+  try {
+    await esbuild.build({
+      entryPoints: [path.join(CLIENT_DIR, 'OperatorDashboard.js')],
+      outfile: path.join(BUILD_DIR, 'OperatorDashboard.bundle.min.js'),
+      minify: true,
+      sourcemap: false,
+      bundle: true,
+      format: 'iife',
+      target: 'es2020',
+      define: {
+        'process.env.NODE_ENV': '"production"'
+      },
+      legalComments: 'none'
+    });
+
+    console.log('✓ Built: OperatorDashboard.bundle.min.js');
+  } catch (error) {
+    console.error('Failed to build operator dashboard:', error.message);
+    process.exit(1);
+  }
+}
+
 async function buildCSS() {
   console.log('Building CSS bundles...\n');
 
@@ -151,13 +226,23 @@ async function buildAll() {
   await buildMainApp();
   await buildAdminApp();
   await buildDirectorApp();
+  await buildLoginPage();
+  await buildModeratorDashboard();
+  await buildOperatorDashboard();
   await buildCSS();
 
   console.log('\n✓ Production build complete!');
   console.log('\nFiles are now minified and obfuscated.');
 
   // Show file sizes
-  const files = ['app.bundle.min.js', 'AdminDashboard.bundle.min.js', 'DirectorDashboard.bundle.min.js'];
+  const files = [
+    'app.bundle.min.js',
+    'AdminDashboard.bundle.min.js',
+    'DirectorDashboard.bundle.min.js',
+    'LoginPage.bundle.min.js',
+    'ModeratorDashboard.bundle.min.js',
+    'OperatorDashboard.bundle.min.js'
+  ];
   console.log('\nBundle sizes:');
   files.forEach(f => {
     const filePath = path.join(BUILD_DIR, f);
