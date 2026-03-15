@@ -124,6 +124,10 @@ Redirect based on role:
 - "Enter Moderation" button per room
 - Navbar with user info and logout
 
+**Navigation:**
+- Click "Enter Moderation" → navigate to `/room/:roomId` (moderator enters room with elevated permissions)
+- Moderation actions (mute, kick) appear in room UI when moderator joins
+
 **Out of Scope:** The actual in-room moderation UI (mute, kick, etc.) is handled within the room view. This dashboard only lists rooms and provides entry points.
 
 ### 4. OperatorDashboard (`/monitoring`)
@@ -135,7 +139,7 @@ Redirect based on role:
 - System-wide monitoring view:
   - Active rooms count
   - Total participants across all rooms
-  - Stream health indicators
+  - Stream status per room (live/offline based on MediaMTX stream state)
 - Rooms list with:
   - Room ID and name
   - Participant count
@@ -149,7 +153,22 @@ Redirect based on role:
 
 **Note:** AuthService already exists at `client/js/AuthService.js` with `init()` and `getCurrentUser()` methods.
 
-Each dashboard implements this auth check pattern:
+**Role Check Utility:**
+```javascript
+// Each dashboard defines allowed roles
+const ALLOWED_ROLES = ['director']; // or ['moderator'], ['operator']
+
+function checkAccess() {
+  const user = authService.getCurrentUser();
+  if (!user || !ALLOWED_ROLES.includes(user.role)) {
+    window.location.href = '/login';
+    return false;
+  }
+  return true;
+}
+```
+
+**Auth Check Pattern:**
 
 1. **On page load:**
    - Call `authService.init()` to check session
@@ -210,6 +229,59 @@ Director and moderator dashboards query their assignments via `getUserRoomAssign
 | `/api/monitoring/status` | GET | Required | System-wide monitoring data (operator) |
 | `/api/monitoring/rooms` | GET | Required | Detailed room list with stats (operator) |
 
+**Response Formats:**
+
+`GET /api/user/rooms`:
+```json
+{
+  "success": true,
+  "rooms": [
+    {
+      "roomId": "ABCD",
+      "name": "Production Room",
+      "participantCount": 5,
+      "isLive": true,
+      "assignmentRole": "director"
+    }
+  ]
+}
+```
+
+`GET /api/monitoring/status`:
+```json
+{
+  "success": true,
+  "activeRooms": 12,
+  "totalParticipants": 45,
+  "rooms": [
+    {
+      "roomId": "ABCD",
+      "name": "Production Room",
+      "participantCount": 5,
+      "streamStatus": "live"
+    }
+  ]
+}
+```
+
+**Error Responses:**
+- `401 Unauthorized` - Not logged in
+- `403 Forbidden` - Wrong role for endpoint
+- `500 Server Error` - Database or server failure
+
+## Server Implementation
+
+**Modify `server/src/index.js`:**
+- Add route handler for `GET /api/user/rooms`
+  - Use `OLAManager.getUserRoomAssignments(req.user.id)` to get assignments
+  - Join with RoomManager data for participant counts
+  - Return filtered room list
+
+- Add route handler for `GET /api/monitoring/status`
+  - Use RoomManager to get all active rooms
+  - Aggregate participant counts
+  - Return system-wide stats (operator role only)
+
 ## New Files
 
 ```
@@ -232,20 +304,33 @@ css/
 
 ## Build Configuration
 
-**Note:** `build.js` exists and uses esbuild for bundling. Update it to include new entry points:
-- `LoginPage.bundle.js`
-- `DirectorDashboard.bundle.js`
-- `ModeratorDashboard.bundle.js`
-- `OperatorDashboard.bundle.js`
+**Note:** `build.js` exists and uses esbuild for bundling.
+
+**Add to build.js entry points array:**
+```javascript
+const dashboardFiles = [
+  'AuthService.js',
+  'LoginPage.js',
+  'DirectorDashboard.js',
+  'ModeratorDashboard.js',
+  'OperatorDashboard.js'
+];
+```
+
+**Output bundles:**
+- `LoginPage.bundle.min.js` → `public/js/dist/`
+- `DirectorDashboard.bundle.min.js` → `public/js/dist/`
+- `ModeratorDashboard.bundle.min.js` → `public/js/dist/`
+- `OperatorDashboard.bundle.min.js` → `public/js/dist/`
 
 ## Navigation Updates
 
-### Admin Panel
-- Add "Director View" link if user has director role
-- Add "Moderator View" link if user has moderator role
-- Add "Monitoring" link if user has operator role
+### Admin Panel (`public/admin.html` + `AdminDashboard.js`)
+- Add "Director View" link if user has director role → `/director`
+- Add "Moderator View" link if user has moderator role → `/moderator`
+- Add "Monitoring" link if user has operator role → `/monitoring`
 
-### Landing Page (index.html)
+### Landing Page (`public/index.html` + `app.js`)
 - Replace direct admin link with "Staff Login" button → `/login`
 - Keep "Join Room" for participants/viewers
 
@@ -263,6 +348,19 @@ css/
    - Each dashboard checks role before rendering
    - API endpoints enforce role-based permissions
 
+## Error Handling
+
+**Dashboard Error Handling:**
+- API network errors → Show "Connection lost" message with retry button
+- 401 errors → Redirect to `/login`
+- 403 errors → Show "Access Denied" with link to appropriate dashboard
+- 500 errors → Show "Server error" message, log to console
+
+**Login Page Error Handling:**
+- Invalid credentials → Show "Invalid username or password"
+- Network errors → Show "Cannot connect to server"
+- Server errors → Show "Login service unavailable"
+
 ## Testing Checklist
 
 - [ ] Login page loads and authenticates correctly
@@ -274,7 +372,7 @@ css/
 - [ ] Director dashboard shows assigned rooms only
 - [ ] Moderator dashboard shows assigned rooms only
 - [ ] Operator dashboard shows system-wide data
-- [ ] Responsive design works on mobile
+- [ ] Responsive design works on mobile (standard CSS, no special breakpoints required)
 
 ## Future Enhancements
 
