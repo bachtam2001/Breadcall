@@ -699,7 +699,7 @@ async function startServer() {
     await rbacManager.initialize();
 
     // Initialize UserManager
-    const userManager = new UserManager(db, rbacManager);
+    const userManager = new UserManager(db, rbacManager, redisClient);
     await userManager.initialize();
 
     // Initialize Redis Client
