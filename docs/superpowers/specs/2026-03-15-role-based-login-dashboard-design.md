@@ -14,6 +14,31 @@ A unified login page at `/login` that authenticates users and redirects them to 
 - Keep viewer/participant access simple (no login required)
 - Reuse existing AuthService and authentication APIs
 
+## Dependencies (Existing)
+
+These components already exist in the codebase:
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| AuthService | `client/js/AuthService.js` | Handles login/logout, session management |
+| OLAManager | `server/src/OLAManager.js` | Room assignment management (Object-Level Authorization) |
+| RoomManager | `server/src/RoomManager.js` | Room data and participant tracking |
+| AdminDashboard | `client/js/AdminDashboard.js` | Existing admin panel ( reused for admin roles) |
+| DirectorView | `client/js/DirectorView.js` | Existing director room view |
+| build.js | `build.js` | esbuild configuration for bundling |
+
+## Data Fetching
+
+**Director/Moderator Dashboards:**
+- Call `GET /api/user/rooms` (new endpoint) - returns rooms assigned to current user
+- Server uses `OLAManager.getUserRoomAssignments(userId)` to fetch assignments
+- Joins with RoomManager data to get participant counts, status
+
+**Operator Dashboard:**
+- Call `GET /api/monitoring/status` (new endpoint) - returns system-wide data
+- Server aggregates data from RoomManager (active rooms, participants)
+- Returns: `{ activeRooms, totalParticipants, rooms: [...] }`
+
 ## Login Flow
 
 ```
@@ -167,15 +192,23 @@ room_assignments:
 
 Director and moderator dashboards query their assignments via `getUserRoomAssignments()` and join with room data from RoomManager.
 
-## API Endpoints (Existing)
+## API Endpoints
+
+### Existing (No Changes Needed)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/auth/login` | POST | Authenticate user, returns user object with role |
 | `/api/auth/me` | GET | Get current user info |
 | `/api/auth/logout` | POST | End session |
-| `/api/admin/rooms` | GET | List rooms (admin only) |
-| `/api/rooms/:id/participants` | GET | Get room participants |
+
+### New Endpoints Required
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/api/user/rooms` | GET | Required | List rooms assigned to current user (director/moderator) |
+| `/api/monitoring/status` | GET | Required | System-wide monitoring data (operator) |
+| `/api/monitoring/rooms` | GET | Required | Detailed room list with stats (operator) |
 
 ## New Files
 
