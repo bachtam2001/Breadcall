@@ -91,6 +91,31 @@ async function buildAdminApp() {
   }
 }
 
+async function buildDirectorApp() {
+  console.log('Building director dashboard bundle...\n');
+
+  try {
+    await esbuild.build({
+      entryPoints: [path.join(CLIENT_DIR, 'DirectorDashboard.js')],
+      outfile: path.join(BUILD_DIR, 'DirectorDashboard.bundle.min.js'),
+      minify: true,
+      sourcemap: false,
+      bundle: true,
+      format: 'iife',
+      target: 'es2020',
+      define: {
+        'process.env.NODE_ENV': '"production"'
+      },
+      legalComments: 'none'
+    });
+
+    console.log('✓ Built: DirectorDashboard.bundle.min.js');
+  } catch (error) {
+    console.error('Failed to build director app:', error.message);
+    process.exit(1);
+  }
+}
+
 async function buildCSS() {
   console.log('Building CSS bundles...\n');
 
@@ -125,13 +150,14 @@ async function buildCSS() {
 async function buildAll() {
   await buildMainApp();
   await buildAdminApp();
+  await buildDirectorApp();
   await buildCSS();
 
   console.log('\n✓ Production build complete!');
   console.log('\nFiles are now minified and obfuscated.');
 
   // Show file sizes
-  const files = ['app.bundle.min.js', 'AdminDashboard.bundle.min.js'];
+  const files = ['app.bundle.min.js', 'AdminDashboard.bundle.min.js', 'DirectorDashboard.bundle.min.js'];
   console.log('\nBundle sizes:');
   files.forEach(f => {
     const filePath = path.join(BUILD_DIR, f);
