@@ -99,10 +99,7 @@ Redirect based on role:
 - "Enter Moderation" button per room
 - Navbar with user info and logout
 
-**Moderation Actions (in-room view):**
-- Mute participant audio/video
-- Kick participant from room
-- Send room-wide announcement
+**Out of Scope:** The actual in-room moderation UI (mute, kick, etc.) is handled within the room view. This dashboard only lists rooms and provides entry points.
 
 ### 4. OperatorDashboard (`/monitoring`)
 
@@ -119,14 +116,13 @@ Redirect based on role:
   - Participant count
   - Stream status
   - Peak viewer count
-- Recent activity log:
-  - Room created/closed
-  - Participant joined/left
-  - Stream started/stopped
 - Auto-refresh every 30 seconds
+- **Future:** Activity log (room events, participant activity) - requires activity logging infrastructure
 - Navbar with user info and logout
 
 ## Protected Route Pattern
+
+**Note:** AuthService already exists at `client/js/AuthService.js` with `init()` and `getCurrentUser()` methods.
 
 Each dashboard implements this auth check pattern:
 
@@ -147,6 +143,29 @@ Each dashboard implements this auth check pattern:
 3. **Logout handling:**
    - Clear session via `/api/auth/logout`
    - Redirect to `/login`
+
+## Data Model
+
+Room-to-user assignments are stored in the `room_assignments` table (via OLAManager).
+
+**Assignment Structure:**
+```
+room_assignments:
+  - id: UUID
+  - user_id: User UUID
+  - room_id: Room ID (e.g., "ABCD")
+  - assignment_role: Role in this room (director, moderator)
+  - granted_by: Admin user who created assignment
+  - granted_at: Timestamp
+  - expires_at: Optional expiration timestamp
+```
+
+**Key Methods (via OLAManager):**
+- `getUserRoomAssignments(userId)` - Returns all room assignments for a user
+- `assignRoom(userId, roomId, role, grantedBy)` - Create assignment
+- `removeRoomAssignment(userId, roomId)` - Remove assignment
+
+Director and moderator dashboards query their assignments via `getUserRoomAssignments()` and join with room data from RoomManager.
 
 ## API Endpoints (Existing)
 
@@ -180,7 +199,7 @@ css/
 
 ## Build Configuration
 
-Update `build.js` to include new entry points:
+**Note:** `build.js` exists and uses esbuild for bundling. Update it to include new entry points:
 - `LoginPage.bundle.js`
 - `DirectorDashboard.bundle.js`
 - `ModeratorDashboard.bundle.js`
