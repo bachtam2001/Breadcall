@@ -91,157 +91,150 @@ class ModeratorDashboard {
   }
 
   // =============================================================================
-  // Rendering
+  // Rendering - Dashboard View
   // =============================================================================
 
   renderDashboard() {
-    const user = window.authService.getCurrentUser();
+    // Get current user role for conditional navigation
+    const currentUser = window.authService.getCurrentUser();
+    const userRole = currentUser?.role;
 
-    this.appElement.innerHTML = `
-      <div class="dashboard-container">
-        ${this.renderNavbar(user)}
-        <main class="dashboard-main">
-          <div class="dashboard-header">
-            <h1>Moderator Dashboard</h1>
-            <p class="dashboard-subtitle">View and manage your assigned rooms</p>
-          </div>
-          <div id="dashboard-content" class="dashboard-content">
-            ${this.renderContentHTML()}
-          </div>
-        </main>
-      </div>
-    `;
+    // Build role-based navigation links
+    let roleNavLinks = '';
+    if (userRole === 'super_admin' || userRole === 'room_admin') {
+      roleNavLinks += '<a href="/admin" class="btn btn-secondary">Admin Panel</a>';
+    }
+    if (userRole === 'director' || userRole === 'super_admin') {
+      roleNavLinks += '<a href="/director-dashboard" class="btn btn-secondary">Director Dashboard</a>';
+    }
+    if (userRole === 'operator' || userRole === 'super_admin') {
+      roleNavLinks += '<a href="/monitoring" class="btn btn-secondary">Monitoring</a>';
+    }
+
+    this.appElement.innerHTML =
+      '<div class="admin-dashboard animate-fade-in">' +
+        '<header class="admin-header">' +
+          '<div>' +
+            '<h1>Moderator Dashboard</h1>' +
+            '<p style="color: var(--color-text-secondary); margin: 0;">View and manage your assigned rooms</p>' +
+          '</div>' +
+          '<div class="admin-header-actions">' +
+            roleNavLinks +
+            '<a href="/" class="btn btn-secondary">View Public Page</a>' +
+            '<button class="btn btn-danger admin-logout-btn" id="admin-logout-btn">Logout</button>' +
+          '</div>' +
+        '</header>' +
+
+        '<div class="admin-stats">' +
+          '<div class="stat-card">' +
+            '<div class="stat-card-label">Assigned Rooms</div>' +
+            '<div class="stat-card-value" id="stat-rooms">-</div>' +
+          '</div>' +
+          '<div class="stat-card">' +
+            '<div class="stat-card-label">Live Rooms</div>' +
+            '<div class="stat-card-value" id="stat-live">-</div>' +
+          '</div>' +
+          '<div class="stat-card">' +
+            '<div class="stat-card-label">Total Participants</div>' +
+            '<div class="stat-card-value" id="stat-participants">-</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<section class="admin-section">' +
+          '<div class="admin-section-header">' +
+            '<h2 class="admin-section-title">Your Rooms</h2>' +
+          '</div>' +
+          '<div class="rooms-grid" id="rooms-grid">' +
+            '<div class="loading-spinner"><div class="spinner"></div></div>' +
+          '</div>' +
+        '</section>' +
+      '</div>';
 
     this.attachEventListeners();
   }
 
-  renderNavbar(user) {
-    return `
-      <nav class="dashboard-navbar">
-        <div class="navbar-brand">
-          <span class="logo">BreadCall</span>
-          <span class="navbar-divider">|</span>
-          <span class="navbar-title">Moderator</span>
-        </div>
-        <div class="navbar-user">
-          <span class="user-name">${this.escapeHtml(user?.username || 'Unknown')}</span>
-          <span class="role-badge role-moderator">${this.escapeHtml(user?.role || 'moderator')}</span>
-          <button class="btn btn-secondary logout-btn" id="logout-btn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-              <polyline points="16 17 21 12 16 7"></polyline>
-              <line x1="21" y1="12" x2="9" y2="12"></line>
-            </svg>
-            Logout
-          </button>
-        </div>
-      </nav>
-    `;
+  updateStats() {
+    const totalRooms = this.rooms.length;
+    const liveRooms = this.rooms.filter(r => (r.participantCount || 0) > 0).length;
+    const totalParticipants = this.rooms.reduce((sum, r) => sum + (r.participantCount || 0), 0);
+
+    const roomsEl = document.getElementById('stat-rooms');
+    const liveEl = document.getElementById('stat-live');
+    const participantsEl = document.getElementById('stat-participants');
+
+    if (roomsEl) roomsEl.textContent = totalRooms;
+    if (liveEl) liveEl.textContent = liveRooms;
+    if (participantsEl) participantsEl.textContent = totalParticipants;
   }
 
   renderContent() {
-    const contentElement = document.getElementById('dashboard-content');
-    if (contentElement) {
-      contentElement.innerHTML = this.renderContentHTML();
-      this.attachContentEventListeners();
-    }
-  }
+    const roomsGrid = document.getElementById('rooms-grid');
+    if (!roomsGrid) return;
 
-  renderContentHTML() {
+    // Update stats
+    this.updateStats();
+
     if (this.isLoading) {
-      return this.renderLoadingState();
+      roomsGrid.innerHTML = '<div class="loading-spinner"><div class="spinner"></div></div>';
+    } else if (this.error) {
+      roomsGrid.innerHTML = this.renderErrorState();
+    } else if (this.rooms.length === 0) {
+      roomsGrid.innerHTML = this.renderEmptyState();
+    } else {
+      roomsGrid.innerHTML = this.renderRoomsGrid();
     }
 
-    if (this.error) {
-      return this.renderErrorState();
-    }
-
-    if (this.rooms.length === 0) {
-      return this.renderEmptyState();
-    }
-
-    return this.renderRoomsGrid();
-  }
-
-  renderLoadingState() {
-    return `
-      <div class="loading-state">
-        <div class="loading-spinner"></div>
-        <p>Loading your assigned rooms...</p>
-      </div>
-    `;
+    this.attachContentEventListeners();
   }
 
   renderErrorState() {
-    return `
-      <div class="error-state">
-        <div class="error-icon">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"></circle>
-            <line x1="12" y1="8" x2="12" y2="12"></line>
-            <line x1="12" y1="16" x2="12.01" y2="16"></line>
-          </svg>
-        </div>
-        <h3>Failed to Load Rooms</h3>
-        <p>${this.escapeHtml(this.error)}</p>
-        <button class="btn btn-primary" id="retry-btn">Try Again</button>
-      </div>
-    `;
+    return '<div class="empty-state">' +
+      '<div class="empty-icon">&#9888;</div>' +
+      '<h3>Failed to Load Rooms</h3>' +
+      '<p>' + this.escapeHtml(this.error) + '</p>' +
+      '<button class="btn btn-primary" id="retry-btn">Try Again</button>' +
+    '</div>';
   }
 
   renderEmptyState() {
-    return `
-      <div class="empty-state">
-        <div class="empty-state-icon">
-          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-            <line x1="16" y1="2" x2="16" y2="6"></line>
-            <line x1="8" y1="2" x2="8" y2="6"></line>
-            <line x1="3" y1="10" x2="21" y2="10"></line>
-          </svg>
-        </div>
-        <h3 class="empty-state-title">No Rooms Assigned</h3>
-        <p>You don't have any rooms assigned as a moderator.</p>
-        <p class="empty-state-hint">Contact an administrator to get room assignments.</p>
-      </div>
-    `;
+    return '<div class="empty-state">' +
+      '<div class="empty-icon">&#128197;</div>' +
+      '<h3>No Rooms Assigned</h3>' +
+      '<p>You don\'t have any rooms assigned as a moderator.</p>' +
+      '<p class="empty-hint">Contact an administrator to get room assignments.</p>' +
+    '</div>';
   }
 
   renderRoomsGrid() {
-    return `
-      <div class="rooms-grid">
-        ${this.rooms.map(room => this.renderRoomCard(room)).join('')}
-      </div>
-    `;
+    return this.rooms.map(room => this.renderRoomCard(room)).join('');
   }
 
   renderRoomCard(room) {
-    const isLive = room.participantCount > 0;
+    const isLive = (room.participantCount || 0) > 0;
     const statusClass = isLive ? 'status-live' : 'status-offline';
     const statusText = isLive ? 'Live' : 'Offline';
 
-    return `
-      <div class="room-card">
-        <div class="room-card-header">
-          <div class="room-card-info">
-            <h3 class="room-card-title">${this.escapeHtml(room.name || 'Unnamed Room')}</h3>
-            <span class="room-card-id">${this.escapeHtml(room.roomId)}</span>
-          </div>
-          <span class="status-badge ${statusClass}">${statusText}</span>
-        </div>
-        <div class="room-card-body">
-          <div class="room-card-stat">
-            <span class="stat-value">${room.participantCount || 0}</span>
-            <span class="stat-label">Participants</span>
-          </div>
-        </div>
-        <div class="room-card-actions">
-          <button class="btn btn-primary enter-room-btn" data-room-id="${this.escapeHtml(room.roomId)}">
-            Enter Room
-          </button>
-        </div>
-      </div>
-    `;
+    return '<div class="room-card">' +
+      '<div class="room-card-header">' +
+        '<h3 class="room-name">' + this.escapeHtml(room.name || 'Unnamed Room') + '</h3>' +
+        '<span class="room-status ' + statusClass + '">' + statusText + '</span>' +
+      '</div>' +
+      '<div class="room-card-body">' +
+        '<div class="room-info">' +
+          '<div class="info-item">' +
+            '<span class="info-label">Room ID:</span>' +
+            '<span class="info-value">' + this.escapeHtml(room.roomId) + '</span>' +
+          '</div>' +
+          '<div class="info-item">' +
+            '<span class="info-label">Participants:</span>' +
+            '<span class="info-value">' + (room.participantCount || 0) + '</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="room-card-footer">' +
+        '<button class="btn btn-primary enter-room-btn" data-room-id="' + this.escapeHtml(room.roomId) + '">Enter Room</button>' +
+      '</div>' +
+    '</div>';
   }
 
   // =============================================================================
@@ -249,7 +242,7 @@ class ModeratorDashboard {
   // =============================================================================
 
   attachEventListeners() {
-    const logoutBtn = document.getElementById('logout-btn');
+    const logoutBtn = document.getElementById('admin-logout-btn');
     if (logoutBtn) {
       logoutBtn.addEventListener('click', () => this.logout());
     }
@@ -294,9 +287,7 @@ class ModeratorDashboard {
 
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
-    toast.innerHTML = `
-      <span class="toast-message">${this.escapeHtml(message)}</span>
-    `;
+    toast.innerHTML = '<span class="toast-message">' + this.escapeHtml(message) + '</span>';
 
     toastContainer.appendChild(toast);
 

@@ -122,171 +122,170 @@ class DirectorDashboard {
   }
 
   async logout() {
-    const result = await window.authService.logout();
-    if (result.success) {
-      this.redirectToLogin();
-    } else {
-      this.showToast(result.error || 'Logout failed', 'error');
-    }
+    await window.authService.logout();
+    this.redirectToLogin();
   }
 
   // =============================================================================
-  // Rendering
+  // Rendering - Dashboard View
   // =============================================================================
 
   renderDashboard() {
-    const user = window.authService.getCurrentUser();
-    const roleBadge = this.getRoleBadge(user?.role);
+    // Get current user role for conditional navigation
+    const currentUser = window.authService.getCurrentUser();
+    const userRole = currentUser?.role;
 
-    this.appElement.innerHTML = `
-      <div class="dashboard-container">
-        ${this.renderNavbar(user, roleBadge)}
-        <main class="dashboard-main">
-          <div class="dashboard-header">
-            <h1>Director Dashboard</h1>
-            <p class="dashboard-subtitle">View and manage your assigned production rooms</p>
-          </div>
-          <div id="content-area" class="content-area">
-            <!-- Content will be rendered here -->
-          </div>
-        </main>
-        <div id="toast-container" class="toast-container"></div>
-      </div>
-    `;
+    // Build role-based navigation links
+    let roleNavLinks = '';
+    if (userRole === 'super_admin' || userRole === 'room_admin') {
+      roleNavLinks += '<a href="/admin" class="btn btn-secondary">Admin Panel</a>';
+    }
+    if (userRole === 'moderator' || userRole === 'super_admin') {
+      roleNavLinks += '<a href="/moderator-dashboard" class="btn btn-secondary">Moderator Dashboard</a>';
+    }
+    if (userRole === 'operator' || userRole === 'super_admin') {
+      roleNavLinks += '<a href="/monitoring" class="btn btn-secondary">Monitoring</a>';
+    }
+
+    this.appElement.innerHTML =
+      '<div class="admin-dashboard animate-fade-in">' +
+        '<header class="admin-header">' +
+          '<div>' +
+            '<h1>Director Dashboard</h1>' +
+            '<p style="color: var(--color-text-secondary); margin: 0;">View and manage your assigned production rooms</p>' +
+          '</div>' +
+          '<div class="admin-header-actions">' +
+            roleNavLinks +
+            '<a href="/" class="btn btn-secondary">View Public Page</a>' +
+            '<button class="btn btn-danger admin-logout-btn" id="admin-logout-btn">Logout</button>' +
+          '</div>' +
+        '</header>' +
+
+        '<div class="admin-stats">' +
+          '<div class="stat-card">' +
+            '<div class="stat-card-label">Assigned Rooms</div>' +
+            '<div class="stat-card-value" id="stat-rooms">-</div>' +
+          '</div>' +
+          '<div class="stat-card">' +
+            '<div class="stat-card-label">Live Rooms</div>' +
+            '<div class="stat-card-value" id="stat-live">-</div>' +
+          '</div>' +
+          '<div class="stat-card">' +
+            '<div class="stat-card-label">Total Participants</div>' +
+            '<div class="stat-card-value" id="stat-participants">-</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<section class="admin-section">' +
+          '<div class="admin-section-header">' +
+            '<h2 class="admin-section-title">Your Rooms</h2>' +
+          '</div>' +
+          '<div class="rooms-grid" id="rooms-grid">' +
+            '<div class="loading-spinner"><div class="spinner"></div></div>' +
+          '</div>' +
+        '</section>' +
+      '</div>';
 
     // Attach event listeners
     this.attachEventListeners();
   }
 
-  renderNavbar(user, roleBadge) {
-    return `
-      <nav class="dashboard-navbar">
-        <div class="navbar-brand">
-          <span class="brand-icon">&#127909;</span>
-          <span class="brand-text">BreadCall Director</span>
-        </div>
-        <div class="navbar-user">
-          <span class="user-role-badge ${roleBadge.class}">${roleBadge.label}</span>
-          <span class="user-name">${this.escapeHtml(user?.username || 'Unknown')}</span>
-          <button id="logout-btn" class="btn btn-sm btn-secondary">Logout</button>
-        </div>
-      </nav>
-    `;
-  }
+  updateStats() {
+    const totalRooms = this.rooms.length;
+    const liveRooms = this.rooms.filter(r => (r.participantCount || 0) > 0).length;
+    const totalParticipants = this.rooms.reduce((sum, r) => sum + (r.participantCount || 0), 0);
 
-  getRoleBadge(role) {
-    const badges = {
-      'super_admin': { label: 'Super Admin', class: 'badge-super-admin' },
-      'room_admin': { label: 'Room Admin', class: 'badge-room-admin' },
-      'director': { label: 'Director', class: 'badge-director' }
-    };
-    return badges[role] || { label: role || 'User', class: 'badge-default' };
+    const roomsEl = document.getElementById('stat-rooms');
+    const liveEl = document.getElementById('stat-live');
+    const participantsEl = document.getElementById('stat-participants');
+
+    if (roomsEl) roomsEl.textContent = totalRooms;
+    if (liveEl) liveEl.textContent = liveRooms;
+    if (participantsEl) participantsEl.textContent = totalParticipants;
   }
 
   renderContent() {
-    const contentArea = document.getElementById('content-area');
-    if (!contentArea) return;
+    const roomsGrid = document.getElementById('rooms-grid');
+    if (!roomsGrid) return;
+
+    // Update stats
+    this.updateStats();
 
     if (this.isLoading) {
-      contentArea.innerHTML = this.renderLoadingState();
+      roomsGrid.innerHTML = '<div class="loading-spinner"><div class="spinner"></div></div>';
     } else if (this.error) {
-      contentArea.innerHTML = this.renderErrorState();
+      roomsGrid.innerHTML = this.renderErrorState();
     } else if (this.rooms.length === 0) {
-      contentArea.innerHTML = this.renderEmptyState();
+      roomsGrid.innerHTML = this.renderEmptyState();
     } else {
-      contentArea.innerHTML = this.renderRoomGrid();
+      roomsGrid.innerHTML = this.renderRoomGrid();
     }
 
     // Re-attach event listeners for dynamically created elements
     this.attachContentEventListeners();
   }
 
-  renderLoadingState() {
-    return `
-      <div class="loading-state">
-        <div class="spinner"></div>
-        <p>Loading your rooms...</p>
-      </div>
-    `;
-  }
-
   renderErrorState() {
-    return `
-      <div class="error-state">
-        <div class="error-icon">&#9888;&#65039;</div>
-        <h3>Failed to Load Rooms</h3>
-        <p>${this.escapeHtml(this.error)}</p>
-        <button id="retry-btn" class="btn btn-primary">Try Again</button>
-      </div>
-    `;
+    return '<div class="empty-state">' +
+      '<div class="empty-icon">&#9888;</div>' +
+      '<h3>Failed to Load Rooms</h3>' +
+      '<p>' + this.escapeHtml(this.error) + '</p>' +
+      '<button class="btn btn-primary" id="retry-btn">Try Again</button>' +
+    '</div>';
   }
 
   renderEmptyState() {
-    return `
-      <div class="empty-state">
-        <div class="empty-icon">&#127909;</div>
-        <h3>No Rooms Assigned</h3>
-        <p>You don't have any rooms assigned for director access yet.</p>
-        <p class="empty-hint">Contact an administrator to get assigned to a room.</p>
-      </div>
-    `;
+    return '<div class="empty-state">' +
+      '<div class="empty-icon">&#127909;</div>' +
+      '<h3>No Rooms Assigned</h3>' +
+      '<p>You don\'t have any rooms assigned for director access yet.</p>' +
+      '<p class="empty-hint">Contact an administrator to get assigned to a room.</p>' +
+    '</div>';
   }
 
   renderRoomGrid() {
-    return `
-      <div class="room-grid">
-        ${this.rooms.map(room => this.renderRoomCard(room)).join('')}
-      </div>
-    `;
+    return this.rooms.map(room => this.renderRoomCard(room)).join('');
   }
 
   renderRoomCard(room) {
-    const isLive = room.participantCount > 0;
+    const isLive = (room.participantCount || 0) > 0;
     const statusClass = isLive ? 'status-live' : 'status-offline';
     const statusText = isLive ? 'Live' : 'Offline';
 
-    return `
-      <div class="room-card glass-panel">
-        <div class="room-card-header">
-          <h3 class="room-name">${this.escapeHtml(room.name || room.id)}</h3>
-          <span class="room-status ${statusClass}">${statusText}</span>
-        </div>
-        <div class="room-card-body">
-          <div class="room-info">
-            <div class="info-item">
-              <span class="info-label">Room ID:</span>
-              <span class="info-value room-id">${this.escapeHtml(room.id)}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">Participants:</span>
-              <span class="info-value participant-count">${room.participantCount || 0}</span>
-            </div>
-          </div>
-        </div>
-        <div class="room-card-footer">
-          <button
-            class="btn btn-primary btn-enter"
-            data-room-id="${this.escapeHtml(room.id)}"
-          >
-            Enter Director View
-          </button>
-        </div>
-      </div>
-    `;
+    return '<div class="room-card">' +
+      '<div class="room-card-header">' +
+        '<h3 class="room-name">' + this.escapeHtml(room.name || room.roomId) + '</h3>' +
+        '<span class="room-status ' + statusClass + '">' + statusText + '</span>' +
+      '</div>' +
+      '<div class="room-card-body">' +
+        '<div class="room-info">' +
+          '<div class="info-item">' +
+            '<span class="info-label">Room ID:</span>' +
+            '<span class="info-value">' + this.escapeHtml(room.roomId) + '</span>' +
+          '</div>' +
+          '<div class="info-item">' +
+            '<span class="info-label">Participants:</span>' +
+            '<span class="info-value">' + (room.participantCount || 0) + '</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="room-card-footer">' +
+        '<button class="btn btn-primary btn-enter" data-room-id="' + this.escapeHtml(room.roomId) + '">Enter Director View</button>' +
+      '</div>' +
+    '</div>';
   }
 
   renderAccessDenied() {
-    this.appElement.innerHTML = `
-      <div class="access-denied">
-        <div class="access-denied-content">
-          <div class="denied-icon">&#128683;</div>
-          <h1>Access Denied</h1>
-          <p>You don't have permission to access the Director Dashboard.</p>
-          <p class="denied-hint">This area requires director, room_admin, or super_admin privileges.</p>
-          <button id="back-btn" class="btn btn-primary">Go to Home</button>
-        </div>
-      </div>
-    `;
+    this.appElement.innerHTML =
+      '<div class="access-denied">' +
+        '<div class="access-denied-content">' +
+          '<div class="denied-icon">&#128683;</div>' +
+          '<h1>Access Denied</h1>' +
+          '<p>You don\'t have permission to access the Director Dashboard.</p>' +
+          '<p class="denied-hint">This area requires director, room_admin, or super_admin privileges.</p>' +
+          '<button id="back-btn" class="btn btn-primary">Go to Home</button>' +
+        '</div>' +
+      '</div>';
 
     document.getElementById('back-btn')?.addEventListener('click', () => {
       window.location.href = '/';
@@ -298,7 +297,7 @@ class DirectorDashboard {
   // =============================================================================
 
   attachEventListeners() {
-    const logoutBtn = document.getElementById('logout-btn');
+    const logoutBtn = document.getElementById('admin-logout-btn');
     if (logoutBtn) {
       logoutBtn.addEventListener('click', () => this.logout());
     }
@@ -328,30 +327,28 @@ class DirectorDashboard {
   // =============================================================================
 
   showToast(message, type = 'info') {
-    const container = document.getElementById('toast-container');
-    if (!container) return;
+    // Check if toast container exists, create if not
+    let container = document.getElementById('toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'toast-container';
+      container.className = 'toast-container';
+      document.body.appendChild(container);
+    }
 
     // Deduplicate toasts
     const now = Date.now();
-    const key = `${message}-${type}`;
-    if (this.recentToasts && this.recentToasts.has(key)) {
-      const lastShown = this.recentToasts.get(key);
+    const key = message + '-' + type;
+    if (this.recentToasts && this.recentToasts[key]) {
+      const lastShown = this.recentToasts[key];
       if (now - lastShown < 5000) return;
     }
 
-    if (!this.recentToasts) this.recentToasts = new Map();
-    this.recentToasts.set(key, now);
-
-    // Cleanup old toasts
-    if (this.recentToasts.size > 50) {
-      const cutoff = now - 30000;
-      for (const [k, v] of this.recentToasts.entries()) {
-        if (v < cutoff) this.recentToasts.delete(k);
-      }
-    }
+    if (!this.recentToasts) this.recentToasts = {};
+    this.recentToasts[key] = now;
 
     const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
+    toast.className = 'toast ' + type;
     toast.textContent = message;
     container.appendChild(toast);
 

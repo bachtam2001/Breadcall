@@ -18,8 +18,9 @@ COPY build.js ./
 # Build JavaScript for production
 RUN npm run build
 
-# Copy HTML files to public directory
+# Copy HTML and CSS files to public directory
 COPY public/*.html /app/public/
+COPY public/css/ /app/public/css/
 
 # Remove dev dependencies to reduce image size
 RUN npm ci --only=production && npm prune --production

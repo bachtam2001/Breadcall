@@ -139,10 +139,14 @@ app.get('/api/session/room', async (req, res) => {
     // Validate token is still valid
     const validation = await tokenManager.validateAccessToken(jwt);
     if (validation.valid) {
+      // Only return hasRoom for actual room tokens, not admin tokens
+      const hasRealRoom = validation.payload.roomId &&
+                          validation.payload.roomId !== 'admin' &&
+                          validation.payload.type !== 'admin_token';
       res.json({
         success: true,
-        hasRoom: true,
-        roomId: validation.payload.roomId
+        hasRoom: hasRealRoom,
+        roomId: hasRealRoom ? validation.payload.roomId : null
       });
       return;
     }
@@ -327,8 +331,13 @@ app.get('/api/admin/me', requireAuth(), (req, res) => {
   });
 });
 
-// List all rooms (admin only)
-app.get('/api/admin/rooms', requireAuth(), (req, res) => {
+// List all rooms (admin with room:view_all permission)
+app.get('/api/admin/rooms', requireAuth(), async (req, res) => {
+  const hasPerm = await rbacManager.hasPermission(req.user.role, 'room:view_all') ||
+                  await rbacManager.hasPermission(req.user.role, '*', 'room');
+  if (!hasPerm) {
+    return res.status(403).json({ success: false, error: 'Insufficient permissions' });
+  }
   const rooms = roomManager.getAllRooms();
   res.json({ success: true, rooms });
 });
@@ -355,8 +364,12 @@ app.get('/api/admin/rooms/:roomId/participants', requireAuth(), (req, res) => {
   res.json({ success: true, participants, directors });
 });
 
-// Create room (admin only)
-app.post('/api/admin/rooms', requireAuth(), (req, res) => {
+// Create room (admin with room:create permission)
+app.post('/api/admin/rooms', requireAuth(), async (req, res) => {
+  const hasPerm = await rbacManager.hasPermission(req.user.role, 'room:create');
+  if (!hasPerm) {
+    return res.status(403).json({ success: false, error: 'Insufficient permissions' });
+  }
   try {
     const { password, maxParticipants = 10, quality = 'hd', codec = 'H264' } = req.body;
     const room = roomManager.createRoom({
@@ -382,8 +395,12 @@ app.post('/api/admin/rooms', requireAuth(), (req, res) => {
   }
 });
 
-// Delete room (admin only)
-app.delete('/api/admin/rooms/:roomId', requireAuth(), (req, res) => {
+// Delete room (admin with room:delete permission)
+app.delete('/api/admin/rooms/:roomId', requireAuth(), async (req, res) => {
+  const hasPerm = await rbacManager.hasPermission(req.user.role, 'room:delete');
+  if (!hasPerm) {
+    return res.status(403).json({ success: false, error: 'Insufficient permissions' });
+  }
   const deleted = roomManager.deleteRoom(req.params.roomId);
   if (!deleted) {
     return res.status(404).json({ success: false, error: 'Room not found' });
@@ -391,8 +408,12 @@ app.delete('/api/admin/rooms/:roomId', requireAuth(), (req, res) => {
   res.json({ success: true });
 });
 
-// Update room settings (admin only)
-app.put('/api/admin/rooms/:roomId/settings', requireAuth(), (req, res) => {
+// Update room settings (admin with room:update permission)
+app.put('/api/admin/rooms/:roomId/settings', requireAuth(), async (req, res) => {
+  const hasPerm = await rbacManager.hasPermission(req.user.role, 'room:update');
+  if (!hasPerm) {
+    return res.status(403).json({ success: false, error: 'Insufficient permissions' });
+  }
   const room = roomManager.getRoom(req.params.roomId);
   if (!room) {
     return res.status(404).json({ success: false, error: 'Room not found' });
@@ -634,6 +655,7 @@ const db = new Database();
 let authMiddleware = null;
 let userManager = null;
 let tokenManager = null;
+let rbacManager = null;
 let redisClient = null;
 let olaManager = null;
 
@@ -699,11 +721,11 @@ async function startServer() {
     await db.loadSeedData(seedFilePath);
 
     // Initialize RBAC Manager
-    const rbacManager = new RBACManager(db, redisClient);
+    rbacManager = new RBACManager(db, redisClient);
     await rbacManager.initialize();
 
     // Initialize UserManager
-    const userManager = new UserManager(db, rbacManager, redisClient);
+    userManager = new UserManager(db, rbacManager, redisClient);
     await userManager.initialize();
 
     // Initialize Redis Client
@@ -711,7 +733,7 @@ async function startServer() {
     await redisClient.connect();
 
     // Initialize TokenManager
-    const tokenManager = new TokenManager(redisClient, db);
+    tokenManager = new TokenManager(redisClient, db);
     await tokenManager.initialize();
 
     // Initialize AuthMiddleware with dependencies
@@ -720,6 +742,11 @@ async function startServer() {
     // Initialize OLAManager
     olaManager = new OLAManager(db, rbacManager);
     await olaManager.initialize();
+
+    // Make managers available to routes via app.locals
+    app.locals.rbacManager = rbacManager;
+    app.locals.userManager = userManager;
+    app.locals.tokenManager = tokenManager;
 
     // Mount user routes with auth middleware
     app.use('/api/user', requireAuth(), createUserRouter(olaManager, roomManager));

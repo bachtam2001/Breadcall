@@ -15,7 +15,8 @@ function createMonitoringRouter(roomManager) {
 
   router.get('/status', async (req, res) => {
     const rbacManager = req.app.locals.rbacManager;
-    const hasPermission = await rbacManager.hasPermission(req.user.role, 'view', 'system');
+    const hasPermission = await rbacManager.hasPermission(req.user.role, 'analytics:view') ||
+                          await rbacManager.hasPermission(req.user.role, 'monitoring:view');
     if (!hasPermission) {
       return res.status(403).json({ success: false, error: 'Access denied' });
     }
@@ -50,7 +51,8 @@ function createMonitoringRouter(roomManager) {
    */
   router.get('/rooms', async (req, res) => {
     const rbacManager = req.app.locals.rbacManager;
-    const hasPermission = await rbacManager.hasPermission(req.user.role, 'view', 'system');
+    const hasPermission = await rbacManager.hasPermission(req.user.role, 'room:view_all') ||
+                          await rbacManager.hasPermission(req.user.role, 'monitoring:view');
     if (!hasPermission) {
       return res.status(403).json({ success: false, error: 'Access denied' });
     }

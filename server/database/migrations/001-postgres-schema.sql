@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS role_permissions (
   PRIMARY KEY (role, permission, object_type)
 );
 
--- room_assignments table
+-- room_assignments table (for persistent room ownership/management)
 CREATE TABLE IF NOT EXISTS room_assignments (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -54,6 +54,21 @@ CREATE TABLE IF NOT EXISTS room_assignments (
   granted_at TIMESTAMPTZ DEFAULT NOW(),
   expires_at TIMESTAMPTZ,
   UNIQUE(user_id, room_id)
+);
+
+-- room_participants table (supports both registered users and guest sessions)
+CREATE TABLE IF NOT EXISTS room_participants (
+  id TEXT PRIMARY KEY,
+  room_id VARCHAR(10) NOT NULL,
+  user_id TEXT REFERENCES users(id) ON DELETE CASCADE,  -- NULL for guests
+  guest_session_id TEXT,  -- For non-registered users
+  role VARCHAR(50) NOT NULL,  -- director, co_director, moderator, publisher, participant, viewer
+  display_name VARCHAR(255),
+  joined_at TIMESTAMPTZ DEFAULT NOW(),
+  left_at TIMESTAMPTZ,
+  is_active BOOLEAN DEFAULT TRUE,
+  UNIQUE(room_id, user_id),  -- One active role per registered user per room
+  UNIQUE(room_id, guest_session_id)  -- One active role per guest session per room
 );
 
 -- stream_access table
@@ -94,3 +109,9 @@ CREATE INDEX IF NOT EXISTS idx_room_assignments_room ON room_assignments(room_id
 -- Stream access indexes
 CREATE INDEX IF NOT EXISTS idx_stream_access_user ON stream_access(user_id);
 CREATE INDEX IF NOT EXISTS idx_stream_access_stream ON stream_access(stream_id);
+
+-- Room participant indexes
+CREATE INDEX IF NOT EXISTS idx_room_participants_room ON room_participants(room_id);
+CREATE INDEX IF NOT EXISTS idx_room_participants_user ON room_participants(user_id);
+CREATE INDEX IF NOT EXISTS idx_room_participants_guest ON room_participants(guest_session_id);
+CREATE INDEX IF NOT EXISTS idx_room_participants_active ON room_participants(room_id, is_active);

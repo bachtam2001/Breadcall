@@ -69,9 +69,23 @@ async function buildMainApp() {
 async function buildAdminApp() {
   console.log('Building admin dashboard bundle...\n');
 
+  // Files to bundle (AuthService must be first as it sets up window.authService)
+  const adminFiles = ['AuthService.js', 'AdminDashboard.js'];
+
+  // Concatenate files
+  let combined = '';
+  for (const file of adminFiles) {
+    const content = fs.readFileSync(path.join(CLIENT_DIR, file), 'utf-8');
+    combined += `/* ===== ${file} ===== */\n${content}\n`;
+  }
+
+  // Write combined file temporarily
+  const tempFile = path.join(BUILD_DIR, '_temp_admin_combined.js');
+  fs.writeFileSync(tempFile, combined);
+
   try {
     await esbuild.build({
-      entryPoints: [path.join(CLIENT_DIR, 'AdminDashboard.js')],
+      entryPoints: [tempFile],
       outfile: path.join(BUILD_DIR, 'AdminDashboard.bundle.min.js'),
       minify: true,
       sourcemap: false,
@@ -84,8 +98,12 @@ async function buildAdminApp() {
       legalComments: 'none'
     });
 
+    // Clean up temp file
+    fs.unlinkSync(tempFile);
+
     console.log('✓ Built: AdminDashboard.bundle.min.js');
   } catch (error) {
+    fs.unlinkSync(tempFile);
     console.error('Failed to build admin app:', error.message);
     process.exit(1);
   }
@@ -94,9 +112,23 @@ async function buildAdminApp() {
 async function buildDirectorApp() {
   console.log('Building director dashboard bundle...\n');
 
+  // Files to bundle (AuthService must be first as it sets up window.authService)
+  const directorFiles = ['AuthService.js', 'DirectorDashboard.js'];
+
+  // Concatenate files
+  let combined = '';
+  for (const file of directorFiles) {
+    const content = fs.readFileSync(path.join(CLIENT_DIR, file), 'utf-8');
+    combined += `/* ===== ${file} ===== */\n${content}\n`;
+  }
+
+  // Write combined file temporarily
+  const tempFile = path.join(BUILD_DIR, '_temp_director_combined.js');
+  fs.writeFileSync(tempFile, combined);
+
   try {
     await esbuild.build({
-      entryPoints: [path.join(CLIENT_DIR, 'DirectorDashboard.js')],
+      entryPoints: [tempFile],
       outfile: path.join(BUILD_DIR, 'DirectorDashboard.bundle.min.js'),
       minify: true,
       sourcemap: false,
@@ -109,8 +141,12 @@ async function buildDirectorApp() {
       legalComments: 'none'
     });
 
+    // Clean up temp file
+    fs.unlinkSync(tempFile);
+
     console.log('✓ Built: DirectorDashboard.bundle.min.js');
   } catch (error) {
+    fs.unlinkSync(tempFile);
     console.error('Failed to build director app:', error.message);
     process.exit(1);
   }
@@ -119,9 +155,23 @@ async function buildDirectorApp() {
 async function buildLoginPage() {
   console.log('Building login page bundle...\n');
 
+  // Files to bundle (AuthService must be first as it sets up window.authService)
+  const loginFiles = ['AuthService.js', 'LoginPage.js'];
+
+  // Concatenate files
+  let combined = '';
+  for (const file of loginFiles) {
+    const content = fs.readFileSync(path.join(CLIENT_DIR, file), 'utf-8');
+    combined += `/* ===== ${file} ===== */\n${content}\n`;
+  }
+
+  // Write combined file temporarily
+  const tempFile = path.join(BUILD_DIR, '_temp_login_combined.js');
+  fs.writeFileSync(tempFile, combined);
+
   try {
     await esbuild.build({
-      entryPoints: [path.join(CLIENT_DIR, 'LoginPage.js')],
+      entryPoints: [tempFile],
       outfile: path.join(BUILD_DIR, 'LoginPage.bundle.min.js'),
       minify: true,
       sourcemap: false,
@@ -134,8 +184,12 @@ async function buildLoginPage() {
       legalComments: 'none'
     });
 
+    // Clean up temp file
+    fs.unlinkSync(tempFile);
+
     console.log('✓ Built: LoginPage.bundle.min.js');
   } catch (error) {
+    fs.unlinkSync(tempFile);
     console.error('Failed to build login page:', error.message);
     process.exit(1);
   }
@@ -144,9 +198,23 @@ async function buildLoginPage() {
 async function buildModeratorDashboard() {
   console.log('Building moderator dashboard bundle...\n');
 
+  // Files to bundle (AuthService must be first as it sets up window.authService)
+  const moderatorFiles = ['AuthService.js', 'ModeratorDashboard.js'];
+
+  // Concatenate files
+  let combined = '';
+  for (const file of moderatorFiles) {
+    const content = fs.readFileSync(path.join(CLIENT_DIR, file), 'utf-8');
+    combined += `/* ===== ${file} ===== */\n${content}\n`;
+  }
+
+  // Write combined file temporarily
+  const tempFile = path.join(BUILD_DIR, '_temp_moderator_combined.js');
+  fs.writeFileSync(tempFile, combined);
+
   try {
     await esbuild.build({
-      entryPoints: [path.join(CLIENT_DIR, 'ModeratorDashboard.js')],
+      entryPoints: [tempFile],
       outfile: path.join(BUILD_DIR, 'ModeratorDashboard.bundle.min.js'),
       minify: true,
       sourcemap: false,
@@ -159,8 +227,12 @@ async function buildModeratorDashboard() {
       legalComments: 'none'
     });
 
+    // Clean up temp file
+    fs.unlinkSync(tempFile);
+
     console.log('✓ Built: ModeratorDashboard.bundle.min.js');
   } catch (error) {
+    fs.unlinkSync(tempFile);
     console.error('Failed to build moderator dashboard:', error.message);
     process.exit(1);
   }
@@ -169,9 +241,23 @@ async function buildModeratorDashboard() {
 async function buildOperatorDashboard() {
   console.log('Building operator dashboard bundle...\n');
 
+  // Files to bundle (AuthService must be first as it sets up window.authService)
+  const operatorFiles = ['AuthService.js', 'OperatorDashboard.js'];
+
+  // Concatenate files
+  let combined = '';
+  for (const file of operatorFiles) {
+    const content = fs.readFileSync(path.join(CLIENT_DIR, file), 'utf-8');
+    combined += `/* ===== ${file} ===== */\n${content}\n`;
+  }
+
+  // Write combined file temporarily
+  const tempFile = path.join(BUILD_DIR, '_temp_operator_combined.js');
+  fs.writeFileSync(tempFile, combined);
+
   try {
     await esbuild.build({
-      entryPoints: [path.join(CLIENT_DIR, 'OperatorDashboard.js')],
+      entryPoints: [tempFile],
       outfile: path.join(BUILD_DIR, 'OperatorDashboard.bundle.min.js'),
       minify: true,
       sourcemap: false,
@@ -184,8 +270,12 @@ async function buildOperatorDashboard() {
       legalComments: 'none'
     });
 
+    // Clean up temp file
+    fs.unlinkSync(tempFile);
+
     console.log('✓ Built: OperatorDashboard.bundle.min.js');
   } catch (error) {
+    fs.unlinkSync(tempFile);
     console.error('Failed to build operator dashboard:', error.message);
     process.exit(1);
   }

@@ -15,13 +15,22 @@ class AuthMiddleware {
    * @returns {Promise<Object>} - { authenticated: boolean, user?: Object, tokenPayload?: Object, error?: string }
    */
   async authenticate(req) {
-    const authHeader = req.headers.authorization;
+    let token = null;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return { authenticated: false, error: 'No token provided' };
+    // Try to get token from Authorization header
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7); // Remove 'Bearer ' prefix
     }
 
-    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+    // If no token in header, try to get from cookie
+    if (!token && req.cookies?.jwt) {
+      token = req.cookies.jwt;
+    }
+
+    if (!token) {
+      return { authenticated: false, error: 'No token provided' };
+    }
 
     const validation = await this.tokenManager.validateAccessToken(token);
 
@@ -71,11 +80,12 @@ class AuthMiddleware {
 
   /**
    * Express middleware function that requires a specific permission
-   * @param {string} permission - The permission required (e.g., 'create', 'delete')
-   * @param {string} objectType - The object type (e.g., 'room', 'stream', 'user')
+   * Supports both legacy format and new resource:action format
+   * @param {string} permission - The permission required (e.g., 'room:create', 'user:kick')
+   * @param {string} objectType - Optional object type for legacy compatibility
    * @returns {Function} - Express middleware function
    */
-  requirePermission(permission, objectType) {
+  requirePermission(permission, objectType = null) {
     return async (req, res, next) => {
       if (!req.user) {
         return res.status(401).json({
@@ -87,9 +97,45 @@ class AuthMiddleware {
       const hasPermission = await this.rbac.hasPermission(req.user.role, permission, objectType);
 
       if (!hasPermission) {
+        const permString = permission.includes(':') ? permission : `${objectType}:${permission}`;
         return res.status(403).json({
           success: false,
-          error: `Forbidden - ${req.user.role} role does not have ${permission} permission for ${objectType}`
+          error: `Forbidden - ${req.user.role} role does not have ${permString} permission`
+        });
+      }
+
+      next();
+    };
+  }
+
+  /**
+   * Express middleware for room-specific permissions
+   * Checks both system role and room assignment permissions
+   * @param {string} permission - The permission required
+   * @returns {Function} - Express middleware function
+   */
+  requireRoomPermission(permission) {
+    return async (req, res, next) => {
+      if (!req.user) {
+        return res.status(401).json({
+          success: false,
+          error: 'Unauthorized'
+        });
+      }
+
+      // Get room role from request (set by previous middleware or from body/params)
+      const roomRole = req.roomRole || req.user.roomRole;
+
+      const hasPermission = await this.rbac.hasRoomPermission(
+        req.user.role,
+        roomRole,
+        permission
+      );
+
+      if (!hasPermission) {
+        return res.status(403).json({
+          success: false,
+          error: `Forbidden - insufficient permissions for this room`
         });
       }
 

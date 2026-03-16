@@ -20,7 +20,8 @@ function createUserRouter(olaManager, roomManager) {
     }
 
     const rbacManager = req.app.locals.rbacManager;
-    const hasPermission = await rbacManager.hasPermission(req.user.role, 'view', 'room');
+    const hasPermission = await rbacManager.hasPermission(req.user.role, 'room:view') ||
+                          await rbacManager.hasPermission(req.user.role, 'room:view_all');
     if (!hasPermission) {
       return res.status(403).json({ success: false, error: 'Access denied' });
     }

@@ -17,7 +17,9 @@ class AdminDashboard {
       this.renderDashboard();
       await this.loadRooms();
     } else {
-      this.renderLogin();
+      // Redirect to login page
+      window.location.href = '/login';
+      return;
     }
   }
 
@@ -44,8 +46,7 @@ class AdminDashboard {
   async logout() {
     await window.authService.logout();
     this.isLoggedIn = false;
-    this.renderLogin();
-    this.showToast('Logged out successfully', 'info');
+    window.location.href = '/login';
   }
 
   // =============================================================================
@@ -921,7 +922,7 @@ class AdminDashboard {
       if (data.success) {
         // Display result
         document.getElementById('token-url').value = data.url;
-        document.getElementById('token-string').value = data.token;
+        document.getElementById('token-string').value = data.accessToken;
 
         // Show result area
         document.getElementById('token-result').style.display = 'block';

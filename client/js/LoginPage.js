@@ -128,22 +128,11 @@ class LoginPage {
     const loginLinks = document.createElement('div');
     loginLinks.className = 'login-links';
 
-    const backLink = document.createElement('a');
-    backLink.href = '/';
-    backLink.className = 'link-back';
-    backLink.textContent = 'Back to home';
-
-    const linkDivider = document.createElement('span');
-    linkDivider.className = 'link-divider';
-    linkDivider.textContent = '|';
-
     const joinLink = document.createElement('a');
     joinLink.href = '/';
     joinLink.className = 'link-join';
     joinLink.textContent = 'Join as viewer/participant';
 
-    loginLinks.appendChild(backLink);
-    loginLinks.appendChild(linkDivider);
     loginLinks.appendChild(joinLink);
 
     // Assemble login box
