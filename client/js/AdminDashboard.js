@@ -7,6 +7,15 @@ class AdminDashboard {
     this.appElement = document.getElementById('app');
     this.isLoggedIn = false;
     this.rooms = [];
+    this.users = [];
+    this.selectedUsers = [];
+    this.userFilters = {
+      search: '',
+      role: 'all',
+      status: 'all'
+    };
+    this.usersLoaded = false;
+    this.userPagination = null;
     this.init();
   }
 
@@ -251,14 +260,77 @@ class AdminDashboard {
         '</div>' +
 
         '<section class="admin-section">' +
-          '<div class="admin-section-header">' +
-            '<h2 class="admin-section-title">Active Rooms</h2>' +
-            (this._hasPermission('create', 'room') ? '<button class="btn btn-primary" id="create-room-btn">+ Create Room</button>' : '') +
-          '</div>' +
-          '<div class="rooms-grid" id="rooms-grid">' +
-            '<div class="loading-spinner"><div class="spinner"></div></div>' +
+          '<div class="tab-buttons">' +
+            '<button class="tab-btn active" data-tab="rooms">Rooms</button>' +
+            '<button class="tab-btn" data-tab="users">Users</button>' +
           '</div>' +
         '</section>' +
+
+        // Rooms Tab
+        '<div class="tab-content active" id="rooms-tab">' +
+          '<section class="admin-section">' +
+            '<div class="admin-section-header">' +
+              '<h2 class="admin-section-title">Active Rooms</h2>' +
+              (this._hasPermission('create', 'room') ? '<button class="btn btn-primary" id="create-room-btn">+ Create Room</button>' : '') +
+            '</div>' +
+            '<div class="rooms-grid" id="rooms-grid">' +
+              '<div class="loading-spinner"><div class="spinner"></div></div>' +
+            '</div>' +
+          '</section>' +
+        '</div>' +
+
+        // Users Tab
+        '<div class="tab-content" id="users-tab">' +
+          '<div class="admin-section-header">' +
+            '<h2 class="admin-section-title">Users</h2>' +
+            '<button class="btn btn-primary" id="create-user-btn">+ Create User</button>' +
+          '</div>' +
+          '<div class="user-filters" id="user-filters">' +
+            '<input type="text" class="search-input" id="user-search" placeholder="Search users...">' +
+            '<select class="filter-select" id="user-role-filter">' +
+              '<option value="all">All Roles</option>' +
+              '<option value="admin">Admin</option>' +
+              '<option value="room_admin">Room Admin</option>' +
+              '<option value="director">Director</option>' +
+              '<option value="moderator">Moderator</option>' +
+              '<option value="operator">Operator</option>' +
+            '</select>' +
+            '<select class="filter-select" id="user-status-filter">' +
+              '<option value="all">All Status</option>' +
+              '<option value="active">Active</option>' +
+              '<option value="inactive">Inactive</option>' +
+            '</select>' +
+          '</div>' +
+          '<div class="data-table-container">' +
+            '<table class="data-table" id="users-table">' +
+              '<thead>' +
+                '<tr>' +
+                  '<th class="checkbox-cell"><input type="checkbox" id="select-all-users"></th>' +
+                  '<th>Username</th>' +
+                  '<th>Role</th>' +
+                  '<th>Status</th>' +
+                  '<th>Created</th>' +
+                  '<th>Actions</th>' +
+                '</tr>' +
+              '</thead>' +
+              '<tbody id="users-table-body">' +
+                '<tr><td colspan="6" class="loading-cell">Loading...</td></tr>' +
+              '</tbody>' +
+            '</table>' +
+          '</div>' +
+          '<div class="table-pagination" id="user-pagination">' +
+            '<span>Showing 1-10 of 0 users</span>' +
+            '<div class="pagination-buttons">' +
+              '<button class="btn btn-secondary" id="user-prev-page">Prev</button>' +
+              '<button class="btn btn-secondary" id="user-next-page">Next</button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="bulk-actions-bar" id="bulk-actions-bar" style="display: none;">' +
+            '<span id="selected-count">Selected: 0 users</span>' +
+            '<button class="btn btn-secondary" id="bulk-role-btn">Change Role</button>' +
+            '<button class="btn btn-danger" id="bulk-delete-btn">Delete Selected</button>' +
+          '</div>' +
+        '</div>' +
       '</div>' +
 
       // Create Room Modal
@@ -482,6 +554,36 @@ class AdminDashboard {
       '<div id="toast-container" class="toast-container"></div>';
 
     this.bindDashboardEvents();
+    this.setupTabNavigation();
+  }
+
+  setupTabNavigation() {
+    const tabs = document.querySelectorAll('.tab-btn');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const tabName = tab.dataset.tab;
+
+        // Update active tab button
+        tabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+
+        // Show corresponding content
+        tabContents.forEach(content => {
+          content.classList.remove('active');
+          if (content.id === tabName + '-tab') {
+            content.classList.add('active');
+          }
+        });
+
+        // Load users if switching to users tab
+        if (tabName === 'users' && !this.usersLoaded) {
+          this.loadUsers();
+          this.usersLoaded = true;
+        }
+      }.bind(this));
+    });
   }
 
   renderRoomsGrid() {
