@@ -1,7 +1,8 @@
 /**
  * AuthService - Handles user authentication for BreadCall
- * Manages login, logout, token refresh, and session persistence using memory-based access tokens
- * Access token is stored in memory, refresh token is stored in HttpOnly cookie
+ * Manages login, logout, token refresh, and session persistence
+ * Access token is stored in sessionStorage for persistence across page reloads
+ * Refresh token is stored in HttpOnly cookie by server
  */
 class AuthService {
   constructor() {
@@ -10,6 +11,68 @@ class AuthService {
     this.tokenExpiry = null;
     this.refreshTimer = null;
     this.authCheckPromise = null;
+
+    // Restore access token from sessionStorage if available
+    this._restoreTokenFromStorage();
+  }
+
+  /**
+   * Restore access token and user data from sessionStorage
+   * @private
+   */
+  _restoreTokenFromStorage() {
+    try {
+      const storedData = sessionStorage.getItem('authToken');
+      if (storedData) {
+        const { accessToken, tokenExpiry, user } = JSON.parse(storedData);
+
+        // Check if token is still valid
+        if (tokenExpiry && Date.now() < tokenExpiry) {
+          this.accessToken = accessToken;
+          this.tokenExpiry = tokenExpiry;
+          this.currentUser = user;
+          console.log('[AuthService] Restored token from sessionStorage');
+
+          // Re-schedule token refresh
+          const remainingTime = Math.floor((tokenExpiry - Date.now()) / 1000);
+          this._scheduleTokenRefresh(remainingTime);
+        } else {
+          // Token expired, clear storage
+          sessionStorage.removeItem('authToken');
+        }
+      }
+    } catch (error) {
+      console.error('[AuthService] Failed to restore token from storage:', error);
+      sessionStorage.removeItem('authToken');
+    }
+  }
+
+  /**
+   * Save access token to sessionStorage
+   * @private
+   */
+  _saveTokenToStorage() {
+    try {
+      sessionStorage.setItem('authToken', JSON.stringify({
+        accessToken: this.accessToken,
+        tokenExpiry: this.tokenExpiry,
+        user: this.currentUser
+      }));
+    } catch (error) {
+      console.error('[AuthService] Failed to save token to storage:', error);
+    }
+  }
+
+  /**
+   * Clear token from sessionStorage
+   * @private
+   */
+  _clearTokenFromStorage() {
+    try {
+      sessionStorage.removeItem('authToken');
+    } catch (error) {
+      console.error('[AuthService] Failed to clear token from storage:', error);
+    }
   }
 
   /**
@@ -42,9 +105,9 @@ class AuthService {
       console.log('[AuthService] /api/auth/me response status:', response.status);
 
       if (!response.ok) {
-        // If 401, try to refresh the token
-        if (response.status === 401 && this.accessToken) {
-          console.log('[AuthService] 401 received with token, attempting refresh...');
+        // If 401, try to refresh the token (refresh token may exist in cookie even if access token is missing)
+        if (response.status === 401) {
+          console.log('[AuthService] 401 received, attempting token refresh...');
           const refreshed = await this.refreshAccessToken();
           if (refreshed) {
             return this.checkAuthStatus();
@@ -52,6 +115,7 @@ class AuthService {
         }
         this.currentUser = null;
         this.accessToken = null;
+        this._clearTokenFromStorage();
         return false;
       }
 
@@ -101,6 +165,9 @@ class AuthService {
         this.tokenExpiry = Date.now() + (data.expiresIn * 1000);
         console.log('[AuthService] Logged in as:', data.user.username, 'role:', data.user.role);
 
+        // Save token to sessionStorage for persistence across page reloads
+        this._saveTokenToStorage();
+
         // Schedule token refresh
         this._scheduleTokenRefresh(data.expiresIn);
 
@@ -134,6 +201,9 @@ class AuthService {
         this.accessToken = data.accessToken;
         this.tokenExpiry = Date.now() + (data.expiresIn * 1000);
 
+        // Save refreshed token to sessionStorage
+        this._saveTokenToStorage();
+
         // Schedule next token refresh
         this._scheduleTokenRefresh(data.expiresIn);
 
@@ -145,6 +215,7 @@ class AuthService {
         this.accessToken = null;
         this.tokenExpiry = null;
         this.currentUser = null;
+        this._clearTokenFromStorage();
         return false;
       }
     } catch (error) {
@@ -261,6 +332,7 @@ class AuthService {
       this.accessToken = null;
       this.tokenExpiry = null;
       this.currentUser = null;
+      this._clearTokenFromStorage();
 
       if (data.success) {
         return { success: true };
@@ -273,6 +345,7 @@ class AuthService {
       this.accessToken = null;
       this.tokenExpiry = null;
       this.currentUser = null;
+      this._clearTokenFromStorage();
       return { success: false, error: 'Logout failed' };
     }
   }
