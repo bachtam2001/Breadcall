@@ -124,23 +124,27 @@ class RBACManager {
       action = permission;
     }
 
+    // Determine the scope to check against
+    // If objectType is provided, use it; otherwise derive from resource
+    const scope = objectType || resource;
+
     // Check for wildcard permissions
     const hasWildcard = role.permissions.some(
-      p => p.permission === '*' && (p.object_type === resource || p.object_type === 'system')
+      p => p.permission === '*' && (p.object_type === scope || p.object_type === 'system')
     );
     if (hasWildcard) return true;
 
     // Check for specific resource:action permission
     const hasSpecific = role.permissions.some(
       p => p.permission === `${resource}:${action}` &&
-           (p.object_type === resource || p.object_type === 'system')
+           (p.object_type === scope || p.object_type === 'system')
     );
     if (hasSpecific) return true;
 
     // Check for resource:* wildcard (all actions on this resource)
     const hasResourceWildcard = role.permissions.some(
       p => p.permission === `${resource}:*` &&
-           (p.object_type === resource || p.object_type === 'system')
+           (p.object_type === scope || p.object_type === 'system')
     );
     if (hasResourceWildcard) return true;
 
