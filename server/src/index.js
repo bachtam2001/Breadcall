@@ -725,6 +725,51 @@ app.put('/api/admin/users/:id/role', requireAuth(), async (req, res) => {
   }
 });
 
+// Delete user (admin only)
+app.delete('/api/admin/users/:id', requireAuth(), async (req, res) => {
+  const hasPerm = await rbacManager.hasPermission(req.user.role, 'user:delete');
+  if (!hasPerm && req.user.role !== 'admin') {
+    return res.status(403).json({ success: false, error: 'Insufficient permissions' });
+  }
+
+  const { id } = req.params;
+
+  // Check if trying to delete self
+  if (id === req.user.userId) {
+    return res.status(403).json({
+      success: false,
+      error: 'Cannot delete your own account'
+    });
+  }
+
+  try {
+    await userManager.deleteUser(id, req.user.userId);
+
+    res.json({
+      success: true,
+      message: 'User deleted successfully'
+    });
+  } catch (error) {
+    if (error.message === 'User not found') {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    if (error.message.includes('Insufficient permissions')) {
+      return res.status(403).json({
+        success: false,
+        error: error.message
+      });
+    }
+    console.error('[API] Error deleting user:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete user'
+    });
+  }
+});
+
 // =============================================================================
 // Token API Routes
 // =============================================================================

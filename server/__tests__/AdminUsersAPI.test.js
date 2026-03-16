@@ -1245,6 +1245,326 @@ describe('PUT /api/admin/users/:id/role', () => {
         .send({ role: 'viewer' })
         .expect(403);
 
+      expect(response.body.error).toBe('Insufficient permissions');
+    } finally {
+      restoreJwt();
+    }
+  });
+});
+
+/**
+ * DELETE /api/admin/users/:id Tests
+ */
+describe('DELETE /api/admin/users/:id', () => {
+  let app;
+  let userManager;
+  let rbacManager;
+  let tokenManager;
+  let mockDb;
+  let mockRedis;
+
+  // Helper to create a mock jwt.verify that returns a specific payload
+  function mockJwtVerify(payload) {
+    const originalVerify = jwt.verify;
+    jwt.verify = jest.fn().mockReturnValue(payload);
+    return () => { jwt.verify = originalVerify; };
+  }
+
+  // Helper to create admin token payload
+  function createAdminPayload() {
+    return {
+      tokenId: 'test-token-admin',
+      type: 'admin_token',
+      roomId: null,
+      userId: 'user-001',
+      permissions: ['*'],
+      role: 'admin',
+      username: 'admin'
+    };
+  }
+
+  // Helper to create operator token payload
+  function createOperatorPayload() {
+    return {
+      tokenId: 'test-token-operator',
+      type: 'admin_token',
+      roomId: null,
+      userId: 'user-002',
+      permissions: [],
+      role: 'operator',
+      username: 'operator'
+    };
+  }
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    // Set required environment variables
+    process.env.DATABASE_URL = 'postgres://test:test@localhost:5432/test';
+    process.env.TOKEN_SECRET = 'test-secret';
+    process.env.CSRF_SECRET = 'csrf-secret';
+    process.env.ALLOWED_ORIGINS = 'http://localhost:3000';
+
+    // Create mock database
+    mockDb = {
+      initialize: jest.fn().mockResolvedValue(),
+      shutdown: jest.fn().mockResolvedValue(),
+      query: jest.fn(),
+      queryOne: jest.fn(),
+      getAllUsers: jest.fn(),
+      getUserById: jest.fn(),
+      getUserByUsername: jest.fn(),
+      getRole: jest.fn().mockResolvedValue({ name: 'operator', hierarchy: 50 }),
+      getRolePermissions: jest.fn().mockResolvedValue([]),
+      insertUser: jest.fn(),
+      updateUserRole: jest.fn(),
+      deleteUser: jest.fn()
+    };
+
+    // Create mock Redis
+    mockRedis = {
+      connect: jest.fn().mockResolvedValue(),
+      disconnect: jest.fn().mockResolvedValue(),
+      isReady: jest.fn().mockReturnValue(false),
+      getJson: jest.fn().mockResolvedValue(null),
+      setJson: jest.fn().mockResolvedValue(),
+      del: jest.fn().mockResolvedValue(),
+      invalidate: jest.fn().mockResolvedValue()
+    };
+
+    // Mock RedisClient constructor
+    const RedisClient = require('../src/RedisClient');
+    RedisClient.mockImplementation(() => mockRedis);
+
+    // Create instances
+    rbacManager = new RBACManager(mockDb, mockRedis);
+    userManager = new UserManager(mockDb, rbacManager, mockRedis);
+    tokenManager = new TokenManager(mockDb, mockRedis);
+
+    // Default mock: allow all permission checks
+    rbacManager.hasPermission = jest.fn().mockResolvedValue(true);
+    rbacManager.canAssignRole = jest.fn().mockResolvedValue(true);
+    rbacManager.canAccessHigherRole = jest.fn().mockResolvedValue(true);
+
+    // Create express app
+    app = express();
+    app.use(express.json());
+    app.use(cookieParser());
+
+    // Mock requireAuth wrapper
+    const requireAuth = () => {
+      return (req, res, next) => {
+        const token = req.cookies.jwt;
+        if (!token) {
+          return res.status(401).json({ success: false, error: 'Unauthorized' });
+        }
+
+        try {
+          const decoded = jwt.verify(token, 'test-secret');
+          req.user = decoded;
+          next();
+        } catch (e) {
+          return res.status(401).json({ success: false, error: 'Invalid token' });
+        }
+      };
+    };
+
+    // Attach managers to app.locals
+    app.locals.rbacManager = rbacManager;
+    app.locals.userManager = userManager;
+
+    // DELETE /api/admin/users/:id route
+    app.delete('/api/admin/users/:id', requireAuth(), async (req, res) => {
+      const hasPerm = await rbacManager.hasPermission(req.user.role, 'user:delete');
+      if (!hasPerm && req.user.role !== 'admin') {
+        return res.status(403).json({ success: false, error: 'Insufficient permissions' });
+      }
+
+      const { id } = req.params;
+
+      // Check if trying to delete self
+      if (id === req.user.userId) {
+        return res.status(403).json({
+          success: false,
+          error: 'Cannot delete your own account'
+        });
+      }
+
+      try {
+        await userManager.deleteUser(id, req.user.userId);
+
+        res.json({
+          success: true,
+          message: 'User deleted successfully'
+        });
+      } catch (error) {
+        if (error.message === 'User not found') {
+          return res.status(404).json({
+            success: false,
+            error: 'User not found'
+          });
+        }
+        if (error.message.includes('Insufficient permissions')) {
+          return res.status(403).json({
+            success: false,
+            error: error.message
+          });
+        }
+        console.error('[API] Error deleting user:', error);
+        res.status(500).json({
+          success: false,
+          error: 'Failed to delete user'
+        });
+      }
+    });
+  });
+
+  afterEach(async () => {
+    jest.clearAllMocks();
+  });
+
+  test('should return 401 without authentication', async () => {
+    const response = await request(app)
+      .delete('/api/admin/users/user-002')
+      .expect(401);
+
+    expect(response.body).toEqual({
+      success: false,
+      error: 'Unauthorized'
+    });
+  });
+
+  test('should delete user successfully (returns 200)', async () => {
+    // Mock jwt.verify to return admin payload
+    const restoreJwt = mockJwtVerify(createAdminPayload());
+
+    try {
+      // Mock deleteUser to resolve successfully
+      userManager.deleteUser = jest.fn().mockResolvedValue();
+
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-admin',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-001',
+        permissions: ['*']
+      }, Date.now());
+
+      const response = await request(app)
+        .delete('/api/admin/users/user-002')
+        .set('Cookie', [`jwt=${token}`])
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.message).toBe('User deleted successfully');
+    } finally {
+      restoreJwt();
+    }
+  });
+
+  test('should return 403 for self-deletion', async () => {
+    // Mock jwt.verify to return admin payload
+    const restoreJwt = mockJwtVerify(createAdminPayload());
+
+    try {
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-admin',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-001',
+        permissions: ['*']
+      }, Date.now());
+
+      // Attempt to delete own account
+      const response = await request(app)
+        .delete('/api/admin/users/user-001')
+        .set('Cookie', [`jwt=${token}`])
+        .expect(403);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe('Cannot delete your own account');
+    } finally {
+      restoreJwt();
+    }
+  });
+
+  test('should return 403 for deleting higher role user (operator trying to delete admin)', async () => {
+    // Mock jwt.verify to return operator payload
+    const restoreJwt = mockJwtVerify(createOperatorPayload());
+
+    try {
+      // Mock deleteUser to throw permission error
+      userManager.deleteUser = jest.fn().mockRejectedValue(new Error('Insufficient permissions to delete admin user'));
+
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-operator',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-002',
+        permissions: []
+      }, Date.now());
+
+      const response = await request(app)
+        .delete('/api/admin/users/user-001')
+        .set('Cookie', [`jwt=${token}`])
+        .expect(403);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toContain('Insufficient permissions');
+    } finally {
+      restoreJwt();
+    }
+  });
+
+  test('should return 404 for non-existent user', async () => {
+    // Mock jwt.verify to return admin payload
+    const restoreJwt = mockJwtVerify(createAdminPayload());
+
+    try {
+      // Mock deleteUser to throw User not found error
+      userManager.deleteUser = jest.fn().mockRejectedValue(new Error('User not found'));
+
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-admin',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-001',
+        permissions: ['*']
+      }, Date.now());
+
+      const response = await request(app)
+        .delete('/api/admin/users/nonexistent-user')
+        .set('Cookie', [`jwt=${token}`])
+        .expect(404);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe('User not found');
+    } finally {
+      restoreJwt();
+    }
+  });
+
+  test('should return 403 for non-admin without user:delete permission', async () => {
+    // Mock jwt.verify to return operator payload
+    const restoreJwt = mockJwtVerify(createOperatorPayload());
+
+    try {
+      // Mock hasPermission to return false (operator lacks user:delete)
+      rbacManager.hasPermission = jest.fn().mockResolvedValue(false);
+
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-operator',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-002',
+        permissions: []
+      }, Date.now());
+
+      const response = await request(app)
+        .delete('/api/admin/users/user-003')
+        .set('Cookie', [`jwt=${token}`])
+        .expect(403);
+
       expect(response.body.success).toBe(false);
       expect(response.body.error).toBe('Insufficient permissions');
     } finally {
