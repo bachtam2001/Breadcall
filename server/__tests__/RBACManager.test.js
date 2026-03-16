@@ -58,30 +58,38 @@ describe('RBACManager', () => {
   ];
 
   const mockRolePermissions = [
+    // Super admin wildcards
     { role: 'super_admin', permission: '*', object_type: 'system' },
     { role: 'super_admin', permission: '*', object_type: 'room' },
     { role: 'super_admin', permission: '*', object_type: 'stream' },
     { role: 'super_admin', permission: '*', object_type: 'user' },
-    { role: 'room_admin', permission: 'create', object_type: 'room' },
-    { role: 'room_admin', permission: 'delete', object_type: 'room' },
-    { role: 'room_admin', permission: 'update', object_type: 'room' },
-    { role: 'room_admin', permission: 'assign', object_type: 'room' },
-    { role: 'room_admin', permission: 'promote', object_type: 'user' },
-    { role: 'moderator', permission: 'mute', object_type: 'room' },
-    { role: 'moderator', permission: 'kick', object_type: 'room' },
-    { role: 'moderator', permission: 'update_settings', object_type: 'room' },
-    { role: 'director', permission: 'view_all', object_type: 'room' },
-    { role: 'director', permission: 'switch_scenes', object_type: 'room' },
-    { role: 'director', permission: 'generate_srt', object_type: 'room' },
-    { role: 'operator', permission: 'view_analytics', object_type: 'system' },
-    { role: 'operator', permission: 'view_monitoring', object_type: 'system' },
-    { role: 'participant', permission: 'join', object_type: 'room' },
-    { role: 'participant', permission: 'send_audio', object_type: 'room' },
-    { role: 'participant', permission: 'send_video', object_type: 'room' },
-    { role: 'participant', permission: 'chat', object_type: 'room' },
-    { role: 'viewer', permission: 'view', object_type: 'stream' },
-    { role: 'viewer', permission: 'generate_srt', object_type: 'stream' },
-    { role: 'viewer', permission: 'view_solo', object_type: 'stream' }
+    // Room admin permissions (new format)
+    { role: 'room_admin', permission: 'room:create', object_type: 'system' },
+    { role: 'room_admin', permission: 'room:delete', object_type: 'system' },
+    { role: 'room_admin', permission: 'room:update', object_type: 'system' },
+    { role: 'room_admin', permission: 'room:assign_director', object_type: 'system' },
+    { role: 'room_admin', permission: 'user:manage_roles', object_type: 'system' },
+    // Moderator permissions (new format)
+    { role: 'moderator', permission: 'user:mute', object_type: 'user' },
+    { role: 'moderator', permission: 'user:kick', object_type: 'user' },
+    { role: 'moderator', permission: 'chat:moderate', object_type: 'room' },
+    // Director permissions (new format)
+    { role: 'director', permission: 'stream:view_all', object_type: 'stream' },
+    { role: 'director', permission: 'stream:switch_scene', object_type: 'stream' },
+    { role: 'director', permission: 'stream:generate_srt', object_type: 'stream' },
+    { role: 'director', permission: 'user:mute', object_type: 'user' },
+    { role: 'director', permission: 'user:kick', object_type: 'user' },
+    // Operator permissions (new format)
+    { role: 'operator', permission: 'analytics:view', object_type: 'system' },
+    { role: 'operator', permission: 'monitoring:view', object_type: 'system' },
+    { role: 'operator', permission: 'room:view_all', object_type: 'system' },
+    // Participant permissions (new format) - stored with room object_type
+    { role: 'participant', permission: 'room:view', object_type: 'room' },
+    { role: 'participant', permission: 'stream:publish', object_type: 'stream' },
+    { role: 'participant', permission: 'chat:send', object_type: 'room' },
+    // Viewer permissions (new format) - stored with room object_type
+    { role: 'viewer', permission: 'room:view', object_type: 'room' },
+    { role: 'viewer', permission: 'stream:view', object_type: 'stream' }
   ];
 
   // Helper to setup seed data mocks for initialize()
@@ -156,61 +164,61 @@ describe('RBACManager', () => {
 
     test('room_admin can create rooms', async () => {
       await rbacManager.initialize();
-      const hasPerm = await rbacManager.hasPermission('room_admin', 'create', 'room');
+      const hasPerm = await rbacManager.hasPermission('room_admin', 'room:create');
       expect(hasPerm).toBe(true);
     });
 
     test('room_admin can delete rooms', async () => {
       await rbacManager.initialize();
-      const hasPerm = await rbacManager.hasPermission('room_admin', 'delete', 'room');
+      const hasPerm = await rbacManager.hasPermission('room_admin', 'room:delete');
       expect(hasPerm).toBe(true);
     });
 
     test('room_admin cannot mute (moderator permission)', async () => {
       await rbacManager.initialize();
-      const hasPerm = await rbacManager.hasPermission('room_admin', 'mute', 'room');
+      const hasPerm = await rbacManager.hasPermission('room_admin', 'user:mute');
       expect(hasPerm).toBe(false);
     });
 
     test('moderator can mute participants', async () => {
       await rbacManager.initialize();
-      const hasPerm = await rbacManager.hasPermission('moderator', 'mute', 'room');
+      const hasPerm = await rbacManager.hasPermission('moderator', 'user:mute');
       expect(hasPerm).toBe(true);
     });
 
     test('moderator can kick participants', async () => {
       await rbacManager.initialize();
-      const hasPerm = await rbacManager.hasPermission('moderator', 'kick', 'room');
+      const hasPerm = await rbacManager.hasPermission('moderator', 'user:kick');
       expect(hasPerm).toBe(true);
     });
 
     test('director can view all rooms', async () => {
       await rbacManager.initialize();
-      const hasPerm = await rbacManager.hasPermission('director', 'view_all', 'room');
+      const hasPerm = await rbacManager.hasPermission('director', 'stream:view_all');
       expect(hasPerm).toBe(true);
     });
 
     test('viewer can view streams', async () => {
       await rbacManager.initialize();
-      const hasPerm = await rbacManager.hasPermission('viewer', 'view', 'stream');
+      const hasPerm = await rbacManager.hasPermission('viewer', 'stream:view');
       expect(hasPerm).toBe(true);
     });
 
-    test('viewer cannot join rooms (participant permission)', async () => {
+    test('viewer cannot publish streams (participant permission)', async () => {
       await rbacManager.initialize();
-      const hasPerm = await rbacManager.hasPermission('viewer', 'join', 'room');
+      const hasPerm = await rbacManager.hasPermission('viewer', 'stream:publish');
       expect(hasPerm).toBe(false);
     });
 
-    test('participant can join rooms', async () => {
+    test('participant can publish streams', async () => {
       await rbacManager.initialize();
-      const hasPerm = await rbacManager.hasPermission('participant', 'join', 'room');
+      const hasPerm = await rbacManager.hasPermission('participant', 'stream:publish');
       expect(hasPerm).toBe(true);
     });
 
     test('non-existent role has no permissions', async () => {
       await rbacManager.initialize();
-      const hasPerm = await rbacManager.hasPermission('nonexistent', 'view', 'stream');
+      const hasPerm = await rbacManager.hasPermission('nonexistent', 'stream:view');
       expect(hasPerm).toBe(false);
     });
   });
@@ -282,16 +290,16 @@ describe('RBACManager', () => {
       await rbacManager.initialize();
       const perms = await rbacManager.getAllPermissions('room_admin');
       expect(perms).toContainEqual(expect.objectContaining({
-        permission: 'create',
-        object_type: 'room'
+        permission: 'room:create',
+        object_type: 'system'
       }));
       expect(perms).toContainEqual(expect.objectContaining({
-        permission: 'delete',
-        object_type: 'room'
+        permission: 'room:delete',
+        object_type: 'system'
       }));
       expect(perms).toContainEqual(expect.objectContaining({
-        permission: 'assign',
-        object_type: 'room'
+        permission: 'room:assign_director',
+        object_type: 'system'
       }));
     });
 
@@ -299,12 +307,12 @@ describe('RBACManager', () => {
       await rbacManager.initialize();
       const perms = await rbacManager.getAllPermissions('moderator');
       expect(perms).toContainEqual(expect.objectContaining({
-        permission: 'mute',
-        object_type: 'room'
+        permission: 'user:mute',
+        object_type: 'user'
       }));
       expect(perms).toContainEqual(expect.objectContaining({
-        permission: 'kick',
-        object_type: 'room'
+        permission: 'user:kick',
+        object_type: 'user'
       }));
     });
 
