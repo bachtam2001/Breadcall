@@ -65,17 +65,17 @@ describe('AuthMiddleware', () => {
 
   // Mock data for roles and permissions
   const mockRoles = [
-    { name: 'super_admin', hierarchy: 100, description: 'Full system access' },
+    { name: 'admin', hierarchy: 100, description: 'Full system access' },
     { name: 'room_admin', hierarchy: 80, description: 'Create and manage own rooms' },
     { name: 'moderator', hierarchy: 60, description: 'Manage participants in assigned rooms' },
     { name: 'participant', hierarchy: 20, description: 'Join rooms, send audio/video' }
   ];
 
   const mockRolePermissions = [
-    { role: 'super_admin', permission: '*', object_type: 'system' },
-    { role: 'super_admin', permission: '*', object_type: 'room' },
-    { role: 'super_admin', permission: '*', object_type: 'stream' },
-    { role: 'super_admin', permission: '*', object_type: 'user' },
+    { role: 'admin', permission: '*', object_type: 'system' },
+    { role: 'admin', permission: '*', object_type: 'room' },
+    { role: 'admin', permission: '*', object_type: 'stream' },
+    { role: 'admin', permission: '*', object_type: 'user' },
     // New format permissions for participant
     { role: 'participant', permission: 'room:view', object_type: 'room' },
     { role: 'participant', permission: 'stream:publish', object_type: 'stream' },
@@ -84,7 +84,7 @@ describe('AuthMiddleware', () => {
 
   // Mock users
   const mockUsers = [
-    { id: 'user-super-admin', username: 'superadmin', password_hash: 'hash', role: 'super_admin', display_name: 'Super Admin', email: null },
+    { id: 'user-super-admin', username: 'superadmin', password_hash: 'hash', role: 'admin', display_name: 'Super Admin', email: null },
     { id: 'user-participant', username: 'participant', password_hash: 'hash', role: 'participant', display_name: 'Participant', email: null }
   ];
 

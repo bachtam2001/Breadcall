@@ -209,8 +209,7 @@ class LoginPage {
     }
 
     const roleRedirects = {
-      'super_admin': '/admin',
-      'room_admin': '/admin',
+      'admin': '/admin',
       'director': '/director-dashboard',
       'moderator': '/moderator-dashboard',
       'operator': '/monitoring'

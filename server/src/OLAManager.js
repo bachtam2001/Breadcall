@@ -75,8 +75,8 @@ class OLAManager {
     const user = await this.db.getUserById(userId);
     if (!user) return false;
 
-    // Super admin has access to all rooms
-    if (user.role === 'super_admin') return true;
+    // Admin has access to all rooms
+    if (user.role === 'admin') return true;
 
     // Check if user has any valid room assignments for this room
     const assignments = await this.getUserRoomAssignments(userId);
@@ -123,8 +123,8 @@ class OLAManager {
     const user = await this.db.getUserById(userId);
     if (!user) return false;
 
-    // Super admin has access to all streams
-    if (user.role === 'super_admin') return true;
+    // Admin has access to all streams
+    if (user.role === 'admin') return true;
 
     // Check if user has valid stream access
     const streams = await this.db.getStreamAccessForUser(userId);

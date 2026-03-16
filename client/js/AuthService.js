@@ -137,20 +137,19 @@ class AuthService {
   }
 
   /**
-   * Check if user is admin (super_admin or room_admin)
+   * Check if user is admin
    * @returns {boolean}
    */
   isAdmin() {
-    return this.currentUser?.role === 'super_admin' ||
-           this.currentUser?.role === 'room_admin';
+    return this.currentUser?.role === 'admin';
   }
 
   /**
-   * Check if user is super admin
+   * Check if user has admin access (admin role only)
    * @returns {boolean}
    */
-  isSuperAdmin() {
-    return this.currentUser?.role === 'super_admin';
+  hasAdminAccess() {
+    return this.currentUser?.role === 'admin';
   }
 
   /**

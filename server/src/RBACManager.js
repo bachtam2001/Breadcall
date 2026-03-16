@@ -111,8 +111,8 @@ class RBACManager {
     const role = this.roleCache.get(roleName);
     if (!role) return false;
 
-    // Super admin has all permissions
-    if (roleName === 'super_admin') return true;
+    // Admin has all permissions
+    if (roleName === 'admin') return true;
 
     // Parse permission if in resource:action format
     let resource, action;

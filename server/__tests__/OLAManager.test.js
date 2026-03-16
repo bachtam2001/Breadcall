@@ -28,7 +28,7 @@ describe('OLAManager', () => {
 
   // Mock data for roles and permissions
   const mockRoles = [
-    { name: 'super_admin', hierarchy: 100, description: 'Full system access' },
+    { name: 'admin', hierarchy: 100, description: 'Full system access' },
     { name: 'room_admin', hierarchy: 80, description: 'Create and manage own rooms' },
     { name: 'moderator', hierarchy: 60, description: 'Manage participants in assigned rooms' },
     { name: 'director', hierarchy: 50, description: 'View and control streams' },
@@ -38,10 +38,10 @@ describe('OLAManager', () => {
   ];
 
   const mockRolePermissions = [
-    { role: 'super_admin', permission: '*', object_type: 'system' },
-    { role: 'super_admin', permission: '*', object_type: 'room' },
-    { role: 'super_admin', permission: '*', object_type: 'stream' },
-    { role: 'super_admin', permission: '*', object_type: 'user' },
+    { role: 'admin', permission: '*', object_type: 'system' },
+    { role: 'admin', permission: '*', object_type: 'room' },
+    { role: 'admin', permission: '*', object_type: 'stream' },
+    { role: 'admin', permission: '*', object_type: 'user' },
     { role: 'room_admin', permission: 'create', object_type: 'room' },
     { role: 'room_admin', permission: 'delete', object_type: 'room' },
     { role: 'room_admin', permission: 'update', object_type: 'room' },
@@ -66,7 +66,7 @@ describe('OLAManager', () => {
 
   // Mock users
   const mockUsers = [
-    { id: 'user-super-admin', username: 'superadmin', password_hash: 'hash', role: 'super_admin', display_name: 'Super Admin', email: null },
+    { id: 'user-super-admin', username: 'superadmin', password_hash: 'hash', role: 'admin', display_name: 'Super Admin', email: null },
     { id: 'user-moderator', username: 'moderator', password_hash: 'hash', role: 'moderator', display_name: 'Moderator', email: null },
     { id: 'user-viewer', username: 'viewer', password_hash: 'hash', role: 'viewer', display_name: 'Viewer', email: null },
     { id: 'user-room-admin', username: 'roomadmin', password_hash: 'hash', role: 'room_admin', display_name: 'Room Admin', email: null }
@@ -334,7 +334,7 @@ describe('OLAManager', () => {
   });
 
   describe('canAccessRoom', () => {
-    test('super_admin can access any room', async () => {
+    test('admin can access any room', async () => {
       const canAccess = await olaManager.canAccessRoom('user-super-admin', 'ANY-ROOM');
       expect(canAccess).toBe(true);
     });

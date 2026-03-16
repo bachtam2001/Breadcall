@@ -183,7 +183,7 @@ class UserManager {
     }
 
     const canAssign = await this.rbac.canAssignRole(actor.role, newRole);
-    if (!canAssign && actor.role !== 'super_admin') {
+    if (!canAssign && actor.role !== 'admin') {
       throw new Error('Insufficient permissions to change role');
     }
 
@@ -218,7 +218,7 @@ class UserManager {
       }
 
       const canDelete = await this.rbac.canAccessHigherRole(actor.role, target.role);
-      if (!canDelete && actor.role !== 'super_admin') {
+      if (!canDelete && actor.role !== 'admin') {
         throw new Error('Insufficient permissions to delete this user');
       }
     }
@@ -250,7 +250,7 @@ class UserManager {
       user: await this.createUser({
         username,
         password,
-        role: 'super_admin',
+        role: 'admin',
         displayName: 'System Administrator'
       })
     };

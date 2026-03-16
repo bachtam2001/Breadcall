@@ -201,13 +201,13 @@ class AdminDashboard {
 
     // Build role-based navigation links
     let roleNavLinks = '';
-    if (userRole === 'director' || userRole === 'super_admin') {
+    if (userRole === 'director' || userRole === 'admin') {
       roleNavLinks += '<a href="/director-dashboard" class="btn btn-secondary">Director Dashboard</a>';
     }
-    if (userRole === 'moderator' || userRole === 'super_admin') {
+    if (userRole === 'moderator' || userRole === 'admin') {
       roleNavLinks += '<a href="/moderator-dashboard" class="btn btn-secondary">Moderator Dashboard</a>';
     }
-    if (userRole === 'operator' || userRole === 'super_admin') {
+    if (userRole === 'operator' || userRole === 'admin') {
       roleNavLinks += '<a href="/monitoring" class="btn btn-secondary">Monitoring</a>';
     }
 

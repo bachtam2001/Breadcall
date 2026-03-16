@@ -48,7 +48,7 @@ describe('RBACManager', () => {
 
   // Seed data for role hierarchy and permissions
   const mockRoles = [
-    { name: 'super_admin', hierarchy: 100, description: 'Full system access' },
+    { name: 'admin', hierarchy: 100, description: 'Full system access' },
     { name: 'room_admin', hierarchy: 80, description: 'Create and manage own rooms' },
     { name: 'moderator', hierarchy: 60, description: 'Manage participants in assigned rooms' },
     { name: 'director', hierarchy: 50, description: 'View and control streams' },
@@ -59,10 +59,10 @@ describe('RBACManager', () => {
 
   const mockRolePermissions = [
     // Super admin wildcards
-    { role: 'super_admin', permission: '*', object_type: 'system' },
-    { role: 'super_admin', permission: '*', object_type: 'room' },
-    { role: 'super_admin', permission: '*', object_type: 'stream' },
-    { role: 'super_admin', permission: '*', object_type: 'user' },
+    { role: 'admin', permission: '*', object_type: 'system' },
+    { role: 'admin', permission: '*', object_type: 'room' },
+    { role: 'admin', permission: '*', object_type: 'stream' },
+    { role: 'admin', permission: '*', object_type: 'user' },
     // Room admin permissions (new format)
     { role: 'room_admin', permission: 'room:create', object_type: 'system' },
     { role: 'room_admin', permission: 'room:delete', object_type: 'system' },
@@ -111,9 +111,9 @@ describe('RBACManager', () => {
       rbacManager = new RBACManager(db);
     });
 
-    test('returns hierarchy level for super_admin', async () => {
+    test('returns hierarchy level for admin', async () => {
       await rbacManager.initialize();
-      const hierarchy = await rbacManager.getRoleHierarchy('super_admin');
+      const hierarchy = await rbacManager.getRoleHierarchy('admin');
       expect(hierarchy).toBe(100);
     });
 
@@ -150,15 +150,15 @@ describe('RBACManager', () => {
       rbacManager = new RBACManager(db);
     });
 
-    test('super_admin has all permissions', async () => {
+    test('admin has all permissions', async () => {
       await rbacManager.initialize();
-      const hasPerm = await rbacManager.hasPermission('super_admin', 'delete', 'room');
+      const hasPerm = await rbacManager.hasPermission('admin', 'delete', 'room');
       expect(hasPerm).toBe(true);
     });
 
-    test('super_admin has wildcard permissions for any object type', async () => {
+    test('admin has wildcard permissions for any object type', async () => {
       await rbacManager.initialize();
-      const hasPerm = await rbacManager.hasPermission('super_admin', 'any_action', 'anything');
+      const hasPerm = await rbacManager.hasPermission('admin', 'any_action', 'anything');
       expect(hasPerm).toBe(true);
     });
 
@@ -229,21 +229,21 @@ describe('RBACManager', () => {
       rbacManager = new RBACManager(db);
     });
 
-    test('super_admin can access all roles', async () => {
+    test('admin can access all roles', async () => {
       await rbacManager.initialize();
-      const canAccess = await rbacManager.canAccessHigherRole('super_admin', 'viewer');
+      const canAccess = await rbacManager.canAccessHigherRole('admin', 'viewer');
       expect(canAccess).toBe(true);
     });
 
-    test('super_admin can access room_admin', async () => {
+    test('admin can access room_admin', async () => {
       await rbacManager.initialize();
-      const canAccess = await rbacManager.canAccessHigherRole('super_admin', 'room_admin');
+      const canAccess = await rbacManager.canAccessHigherRole('admin', 'room_admin');
       expect(canAccess).toBe(true);
     });
 
-    test('room_admin cannot access super_admin', async () => {
+    test('room_admin cannot access admin', async () => {
       await rbacManager.initialize();
-      const canAccess = await rbacManager.canAccessHigherRole('room_admin', 'super_admin');
+      const canAccess = await rbacManager.canAccessHigherRole('room_admin', 'admin');
       expect(canAccess).toBe(false);
     });
 
@@ -334,7 +334,7 @@ describe('RBACManager', () => {
       const roles = rbacManager.getAllRoles();
       expect(roles.length).toBe(7);
       expect(roles).toContainEqual(expect.objectContaining({
-        name: 'super_admin',
+        name: 'admin',
         hierarchy: 100
       }));
       expect(roles).toContainEqual(expect.objectContaining({

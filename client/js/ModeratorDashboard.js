@@ -21,9 +21,9 @@ class ModeratorDashboard {
       return;
     }
 
-    // Check role - must be moderator, super_admin, or room_admin
+    // Check role - must be moderator or admin
     const user = window.authService.getCurrentUser();
-    const allowedRoles = ['moderator', 'super_admin', 'room_admin'];
+    const allowedRoles = ['moderator', 'admin'];
     if (!user || !allowedRoles.includes(user.role)) {
       this.showToast('Access denied: Moderator role required', 'error');
       window.location.href = '/';
@@ -101,13 +101,13 @@ class ModeratorDashboard {
 
     // Build role-based navigation links
     let roleNavLinks = '';
-    if (userRole === 'super_admin' || userRole === 'room_admin') {
+    if (userRole === 'admin') {
       roleNavLinks += '<a href="/admin" class="btn btn-secondary">Admin Panel</a>';
     }
-    if (userRole === 'director' || userRole === 'super_admin') {
+    if (userRole === 'director' || userRole === 'admin') {
       roleNavLinks += '<a href="/director-dashboard" class="btn btn-secondary">Director Dashboard</a>';
     }
-    if (userRole === 'operator' || userRole === 'super_admin') {
+    if (userRole === 'operator' || userRole === 'admin') {
       roleNavLinks += '<a href="/monitoring" class="btn btn-secondary">Monitoring</a>';
     }
 

@@ -26,9 +26,9 @@ class OperatorDashboard {
       return;
     }
 
-    // Check role - must be operator or super_admin
+    // Check role - must be operator or admin
     const user = window.authService.getCurrentUser();
-    const allowedRoles = ['operator', 'super_admin'];
+    const allowedRoles = ['operator', 'admin'];
     if (!user || !allowedRoles.includes(user.role)) {
       this.showToast('Access denied: Operator role required', 'error');
       window.location.href = '/login';
@@ -181,13 +181,13 @@ class OperatorDashboard {
 
     // Build role-based navigation links
     let roleNavLinks = '';
-    if (userRole === 'super_admin' || userRole === 'room_admin') {
+    if (userRole === 'admin') {
       roleNavLinks += '<a href="/admin" class="btn btn-secondary">Admin Panel</a>';
     }
-    if (userRole === 'director' || userRole === 'super_admin') {
+    if (userRole === 'director' || userRole === 'admin') {
       roleNavLinks += '<a href="/director-dashboard" class="btn btn-secondary">Director Dashboard</a>';
     }
-    if (userRole === 'moderator' || userRole === 'super_admin') {
+    if (userRole === 'moderator' || userRole === 'admin') {
       roleNavLinks += '<a href="/moderator-dashboard" class="btn btn-secondary">Moderator Dashboard</a>';
     }
 

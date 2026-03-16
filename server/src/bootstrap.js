@@ -27,9 +27,9 @@ async function bootstrap() {
     const result = await userManager.createBootstrapAdmin(adminUsername, adminPassword);
 
     if (result.exists) {
-      console.log(`[Bootstrap] Super admin user '${adminUsername}' already exists`);
+      console.log(`[Bootstrap] Admin user '${adminUsername}' already exists`);
     } else {
-      console.log(`[Bootstrap] Created super admin user '${adminUsername}'`);
+      console.log(`[Bootstrap] Created admin user '${adminUsername}'`);
     }
 
     return { username: adminUsername, exists: result.exists };

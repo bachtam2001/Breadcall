@@ -185,16 +185,16 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     // Determine token type based on user role
-    const tokenType = authResult.user.role === 'super_admin' ? 'admin_token' : 'room_access';
+    const tokenType = authResult.user.role === 'admin' ? 'admin_token' : 'room_access';
 
     // Generate JWT token pair
     const tokenResult = await tokenManager.generateTokenPair({
       type: tokenType,
       roomId: 'admin',
       userId: authResult.user.id,
-      permissions: authResult.user.role === 'super_admin'
-        ? ['*', 'create', 'delete', 'update', 'assign']
-        : ['join', 'send_audio', 'send_video', 'chat']
+      permissions: authResult.user.role === 'admin'
+        ? ['*', 'room:create', 'room:delete', 'room:update', 'user:assign_role']
+        : ['room:view', 'stream:publish', 'chat:send']
     });
 
     // Set JWT in HttpOnly cookie
