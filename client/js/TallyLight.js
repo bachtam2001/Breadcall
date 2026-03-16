@@ -231,6 +231,10 @@ class TallyLight {
       this.elements.delete(streamId);
       this.states.delete(streamId);
     }
+    // Clean up event handlers for this stream
+    if (this._handlers) {
+      this._handlers.delete(streamId);
+    }
   }
 
   /**
@@ -240,6 +244,10 @@ class TallyLight {
     this.states.forEach((_, streamId) => {
       this.remove(streamId);
     });
+    // Clear all event handlers
+    if (this._handlers) {
+      this._handlers.clear();
+    }
   }
 
   /**

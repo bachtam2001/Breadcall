@@ -10,6 +10,7 @@ class VideoEffects {
     this.textures = new Map();
     this.currentEffect = null;
     this.initialized = false;
+    this.buffers = []; // Track created buffers for cleanup
   }
 
   /**
@@ -219,28 +220,24 @@ class VideoEffects {
     const gl = this.gl;
 
     // Position buffer
-    let positionBuffer = gl.getBuffer(gl.ARRAY_BUFFER);
-    if (!positionBuffer) {
-      positionBuffer = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-        -1, -1, 1, -1, -1, 1, 1, 1
-      ]), gl.STATIC_DRAW);
-    }
+    let positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      -1, -1, 1, -1, -1, 1, 1, 1
+    ]), gl.STATIC_DRAW);
+    this.buffers.push(positionBuffer);
 
     const positionLocation = gl.getAttribLocation(this.program, 'aPosition');
     gl.enableVertexAttribArray(positionLocation);
     gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
 
     // TexCoord buffer
-    let texCoordBuffer = gl.getBuffer(gl.ARRAY_BUFFER);
-    if (!texCoordBuffer) {
-      texCoordBuffer = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-        0, 1, 1, 1, 0, 0, 1, 0
-      ]), gl.STATIC_DRAW);
-    }
+    let texCoordBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      0, 1, 1, 1, 0, 0, 1, 0
+    ]), gl.STATIC_DRAW);
+    this.buffers.push(texCoordBuffer);
 
     const texCoordLocation = gl.getAttribLocation(this.program, 'aTexCoord');
     gl.enableVertexAttribArray(texCoordLocation);
@@ -303,17 +300,28 @@ class VideoEffects {
    */
   cleanup() {
     if (this.gl) {
+      // Delete buffers
+      this.buffers.forEach(buffer => {
+        this.gl.deleteBuffer(buffer);
+      });
+      this.buffers = [];
+
+      // Delete textures
       this.textures.forEach(texture => {
         this.gl.deleteTexture(texture);
       });
       this.textures.clear();
 
+      // Delete program
       if (this.program) {
         this.gl.deleteProgram(this.program);
       }
     }
 
     this.initialized = false;
+    this.canvas = null;
+    this.gl = null;
+    this.program = null;
   }
 }
 

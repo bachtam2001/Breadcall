@@ -56,7 +56,10 @@ class RedisClient {
 
   async setJson(key, jsonObject, ttlSeconds = null) {
     const jsonString = JSON.stringify(jsonObject);
-    return this.set(key, jsonString, ttlSeconds);
+    console.log('[RedisClient] setJson called for key:', key, 'connected:', this.connected);
+    const result = await this.set(key, jsonString, ttlSeconds);
+    console.log('[RedisClient] setJson complete for key:', key);
+    return result;
   }
 
   async getJson(key) {

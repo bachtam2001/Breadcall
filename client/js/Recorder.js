@@ -178,7 +178,7 @@ class Recorder extends EventEmitter {
    * Get recording state
    * @returns {boolean}
    */
-  isRecording() {
+  getIsRecording() {
     return this.isRecording;
   }
 

@@ -348,19 +348,18 @@ class UIManager {
     if (!this.recentToasts) {
       this.recentToasts = new Map();
     }
+
+    // Clean up expired entries (>30s old) on every call to prevent unbounded growth
+    const cutoff = now - 30000;
+    for (const [k, v] of this.recentToasts.entries()) {
+      if (v < cutoff) this.recentToasts.delete(k);
+    }
+
     if (this.recentToasts.has(key)) {
       const lastShown = this.recentToasts.get(key);
       if (now - lastShown < 5000) return; // Skip if shown in last 5s
     }
     this.recentToasts.set(key, now);
-
-    // Clean up old entries periodically (keep last 50)
-    if (this.recentToasts.size > 50) {
-      const cutoff = now - 30000;
-      for (const [k, v] of this.recentToasts.entries()) {
-        if (v < cutoff) this.recentToasts.delete(k);
-      }
-    }
 
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;

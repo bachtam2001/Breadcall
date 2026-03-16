@@ -24,12 +24,28 @@ class IframeAPI {
 
     this.parentWindow = window.parent;
 
-    // Listen for commands from parent
-    window.addEventListener('message', (event) => {
+    // Bind the handler so we can remove it later
+    this._messageHandler = (event) => {
       this.handleCommand(event);
-    });
+    };
+
+    // Listen for commands from parent
+    window.addEventListener('message', this._messageHandler);
 
     console.log('[IframeAPI] Initialized');
+  }
+
+  /**
+   * Destroy iframe API and cleanup listeners
+   */
+  destroy() {
+    if (this._messageHandler) {
+      window.removeEventListener('message', this._messageHandler);
+      this._messageHandler = null;
+    }
+    this.parentWindow = null;
+    this.commandHandlers = {};
+    console.log('[IframeAPI] Destroyed');
   }
 
   /**

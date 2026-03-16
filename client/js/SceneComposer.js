@@ -341,6 +341,7 @@ class SceneComposer {
     this.sources.clear();
     this.scenes.clear();
     this.activeScene = null;
+    this.destroyed = true;
   }
 }
 

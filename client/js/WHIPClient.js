@@ -104,15 +104,23 @@ class WHIPClient {
       if (this.pc.iceGatheringState === 'complete') {
         resolve();
       } else {
+        let resolved = false;
         const checkState = () => {
-          if (this.pc.iceGatheringState === 'complete') {
+          if (!resolved && this.pc.iceGatheringState === 'complete') {
+            resolved = true;
             this.pc.removeEventListener('icegatheringstatechange', checkState);
             resolve();
           }
         };
         this.pc.addEventListener('icegatheringstatechange', checkState);
-        // Fail-safe timeout
-        setTimeout(resolve, 3000);
+        // Fail-safe timeout - always clean up
+        setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            this.pc.removeEventListener('icegatheringstatechange', checkState);
+            resolve();
+          }
+        }, 3000);
       }
     });
 

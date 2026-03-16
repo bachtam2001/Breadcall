@@ -13,8 +13,11 @@ class LoginPage {
     // Check if already logged in, redirect if so
     const isAuthenticated = await window.authService.init();
     if (isAuthenticated) {
-      this.redirectBasedOnRole(window.authService.getCurrentUser());
-      return;
+      const user = window.authService.getCurrentUser();
+      if (user) {
+        this.redirectBasedOnRole(user);
+        return;
+      }
     }
 
     this.render();
@@ -184,7 +187,10 @@ class LoginPage {
     try {
       const result = await window.authService.login(username, password);
 
-      if (result.success) {
+      if (result.success && result.user) {
+        console.log('[LoginPage] Login successful, user:', result.user);
+        // Small delay to ensure cookies are set before redirect
+        await new Promise(resolve => setTimeout(resolve, 50));
         this.redirectBasedOnRole(result.user);
       } else {
         this.showError(result.error || 'Invalid credentials');
@@ -209,6 +215,8 @@ class LoginPage {
     }
 
     const roleRedirects = {
+      'super_admin': '/admin',
+      'room_admin': '/admin',
       'admin': '/admin',
       'director': '/director-dashboard',
       'moderator': '/moderator-dashboard',
@@ -216,6 +224,7 @@ class LoginPage {
     };
 
     const redirectUrl = roleRedirects[user.role] || '/';
+    console.log('[LoginPage] Redirecting to:', redirectUrl, 'for role:', user.role);
     window.location.href = redirectUrl;
   }
 

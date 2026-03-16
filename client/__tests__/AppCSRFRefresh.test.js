@@ -1,13 +1,13 @@
 /**
- * BreadCallApp CSRF and Token Refresh Tests
- * Tests for CSRF protection and automatic token refresh functionality
+ * BreadCallApp AuthService Integration Tests
+ * Tests for memory-based access token with refresh token cookie authentication
  */
 
 // Mock fetch globally before any imports
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
-describe('BreadCallApp - CSRF and Token Refresh', () => {
+describe('BreadCallApp - AuthService Integration', () => {
   let app;
   let mockSignaling;
   let mockWebRTCManager;
@@ -91,6 +91,21 @@ describe('BreadCallApp - CSRF and Token Refresh', () => {
     };
     window.addEventListener = jest.fn();
 
+    // Mock AuthService
+    global.authService = {
+      init: jest.fn().mockResolvedValue(false),
+      checkAuthStatus: jest.fn().mockResolvedValue(false),
+      login: jest.fn(),
+      logout: jest.fn(),
+      getAccessToken: jest.fn().mockReturnValue(null),
+      getCurrentUser: jest.fn().mockReturnValue(null),
+      hasPermission: jest.fn().mockReturnValue(false),
+      hasRole: jest.fn().mockReturnValue(false),
+      refreshAccessToken: jest.fn().mockResolvedValue(false),
+      checkRoomSession: jest.fn().mockResolvedValue({ hasRoom: false }),
+      getWebSocketUrl: jest.fn().mockReturnValue('ws://localhost:3000/ws')
+    };
+
     // Load the app module after mocks are set up
     BreadCallApp = require('../js/app.js');
   });
@@ -98,148 +113,32 @@ describe('BreadCallApp - CSRF and Token Refresh', () => {
   afterEach(() => {
     jest.useRealTimers();
     jest.clearAllMocks();
-    // Clear any pending timers
     jest.clearAllTimers();
   });
 
   function createApp() {
-    // Create app instance without calling init
     const app = new BreadCallApp();
-    // Note: we don't clear mock here to avoid race conditions with async init calls
-    // Tests should set up their own mocks and track calls independently
     return app;
   }
 
-  describe('fetchCsrfToken', () => {
-    test('should fetch CSRF token from server', async () => {
-      // Setup fetch mock - must be done before creating app instance
-      mockFetch.mockImplementation(() => Promise.resolve({
-        json: async () => ({
-          success: true,
-          csrfToken: 'test-csrf-token-123'
-        })
-      }));
-
-      const app = createApp();
-      const csrfToken = await app.fetchCsrfToken();
-
-      expect(csrfToken).toBe('test-csrf-token-123');
-      expect(mockFetch).toHaveBeenCalledWith('/api/csrf-token', {
-        credentials: 'include'
-      });
-    });
-
-    test('should throw error when CSRF token fetch fails', async () => {
-      mockFetch.mockImplementation(() => Promise.resolve({
-        json: async () => ({
-          success: false
-        })
-      }));
-
+  describe('App initialization', () => {
+    test('should create app instance without token refresh properties', () => {
       const app = createApp();
 
-      await expect(app.fetchCsrfToken()).rejects.toThrow('Failed to fetch CSRF token');
+      // App should not have old token refresh properties
+      expect(app.refreshTimerId).toBeUndefined();
+      expect(app.tokenExpiryTime).toBeUndefined();
     });
 
-    test('should throw error when server returns error', async () => {
-      mockFetch.mockImplementation(() => Promise.reject(new Error('Network error')));
-
-      const app = createApp();
-
-      await expect(app.fetchCsrfToken()).rejects.toThrow('Network error');
-    });
-  });
-
-  describe('refreshTokens', () => {
-    test('should refresh tokens with CSRF protection', async () => {
-      const mockCsrfToken = 'csrf-token-123';
-      const mockRefreshResponse = {
-        success: true,
-        accessToken: 'new-access-token',
-        refreshToken: 'new-refresh-token',
-        expiresIn: 900
-      };
-
-      // Setup mock BEFORE createApp to handle all fetch calls including init
-      mockFetch.mockImplementation((url, options) => {
-        // Skip init calls (checkSessionForAutoRejoin runs async without await)
-        if (url === '/api/webrtc-config') {
-          return Promise.resolve({ json: async () => ({ iceServers: [] }) });
-        }
-        if (url === '/api/session/room') {
-          return Promise.resolve({ json: async () => ({ success: false }) });
-        }
-        if (url === '/api/csrf-token') {
-          return Promise.resolve({
-            json: async () => ({
-              success: true,
-              csrfToken: mockCsrfToken
-            })
-          });
-        }
-        if (url === '/api/tokens/refresh') {
-          return Promise.resolve({
-            json: async () => mockRefreshResponse
-          });
-        }
-        return Promise.resolve({ json: async () => ({}) });
-      });
-
-      const app = createApp();
-
-      const result = await app.refreshTokens();
-
-      // Verify CSRF token was fetched (call #2, after webrtc-config at #1)
-      // Note: session/room may appear at #3 due to async checkSessionForAutoRejoin()
-      expect(mockFetch).toHaveBeenNthCalledWith(2, '/api/csrf-token', { credentials: 'include' });
-
-      // Verify tokens were refreshed with CSRF header (call #4, or #3 if no session/room interference)
-      const refreshCallIndex = mockFetch.mock.calls.findIndex(call => call[0] === '/api/tokens/refresh');
-      expect(refreshCallIndex).toBeGreaterThan(0);
-      const refreshCall = mockFetch.mock.calls[refreshCallIndex];
-      expect(refreshCall[0]).toBe('/api/tokens/refresh');
-      expect(refreshCall[1]).toEqual({
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-csrf-token': mockCsrfToken
-        }
-      });
-
-      expect(result.success).toBe(true);
-      expect(app.tokenExpiryTime).toBeDefined();
-    });
-
-    test('should throw error when token refresh fails', async () => {
-      let refreshCallCount = 0;
-
-      // Setup mock BEFORE createApp to handle all fetch calls including init
-      mockFetch.mockImplementation((url, options) => {
+    test('should initialize with WebRTC config fetch', async () => {
+      mockFetch.mockImplementation((url) => {
         if (url === '/api/webrtc-config') {
           return Promise.resolve({
-            json: async () => ({ iceServers: [] })
-          });
-        }
-        if (url === '/api/session/room') {
-          return Promise.resolve({
-            json: async () => ({ success: false })
-          });
-        }
-        if (url === '/api/csrf-token') {
-          return Promise.resolve({
+            ok: true,
             json: async () => ({
               success: true,
-              csrfToken: 'csrf-token'
-            })
-          });
-        }
-        if (url === '/api/tokens/refresh') {
-          refreshCallCount++;
-          return Promise.resolve({
-            json: async () => ({
-              success: false,
-              error: 'refresh_invalid'
+              webrtcUrl: 'http://localhost:8887',
+              iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
             })
           });
         }
@@ -248,183 +147,45 @@ describe('BreadCallApp - CSRF and Token Refresh', () => {
 
       const app = createApp();
 
-      await expect(app.refreshTokens()).rejects.toThrow('refresh_invalid');
-      expect(refreshCallCount).toBe(1);
+      // Wait for async init
+      await Promise.resolve();
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/webrtc-config');
     });
   });
 
-  describe('scheduleTokenRefresh', () => {
-    test('should schedule refresh for 1 minute before expiry', async () => {
-      const fs = require('fs');
-      const path = require('path');
-      const debugFile = path.join(__dirname, 'debug-log.txt');
-      fs.writeFileSync(debugFile, '[TEST] Starting test\n');
-
-      const fixedTime = Date.now();
-      jest.spyOn(Date, 'now').mockReturnValue(fixedTime);
-
-      let refreshCallCount = 0;
-      let scheduledCallback = null;
-      let scheduleCallCount = 0;
-      let allSetTimeoutDelays = [];
-
-      // Mock setTimeout to capture ALL callbacks (init might also set timers)
-      const originalSetTimeout = setTimeout;
-      const setTimeoutMock = jest.fn((cb, delay) => {
-        // Track all delays for debugging
-        allSetTimeoutDelays.push(delay);
-        fs.appendFileSync(debugFile, `[TEST] setTimeout called with delay: ${delay}\n`);
-        // Only capture callbacks with reasonable delays (token refresh uses ~14 min delay)
-        if (delay > 10000) {
-          scheduledCallback = cb;
-          scheduleCallCount++;
-          fs.appendFileSync(debugFile, `[TEST] Captured callback with delay: ${delay}\n`);
-        }
-        return { _timerId: scheduleCallCount, delay };
-      });
-      global.setTimeout = setTimeoutMock;
-
-      // Setup mock BEFORE createApp to handle all fetch calls including init
-      mockFetch.mockImplementation((url, options) => {
-        fs.appendFileSync(debugFile, `[FETCH] Called with URL: ${url}\n`);
-        // Skip init calls (checkSessionForAutoRejoin runs async without await)
-        if (url === '/api/webrtc-config') {
-          return Promise.resolve({ json: async () => ({ iceServers: [] }) });
-        }
-        if (url === '/api/session/room') {
-          return Promise.resolve({ json: async () => ({ success: false }) });
-        }
-        if (url === '/api/csrf-token') {
-          return Promise.resolve({
-            json: async () => ({
-              success: true,
-              csrfToken: 'csrf-token'
-            })
-          });
-        } else if (url === '/api/tokens/refresh') {
-          refreshCallCount++;
-          fs.appendFileSync(debugFile, `[FETCH] tokens/refresh called, count: ${refreshCallCount}\n`);
-          return Promise.resolve({
-            json: async () => ({
-              success: true,
-              accessToken: 'new-token',
-              refreshToken: 'new-refresh',
-              expiresIn: 900
-            })
-          });
-        }
-        return Promise.resolve({});
-      });
-
-      fs.appendFileSync(debugFile, '[TEST] About to createApp\n');
+  describe('AuthService delegation', () => {
+    test('should not implement fetchCsrfToken (removed)', () => {
       const app = createApp();
-      fs.appendFileSync(debugFile, '[TEST] app created, mockFetch calls: ' + mockFetch.mock.calls.length + '\n');
 
-      const timeUntilExpiry = 15 * 60 * 1000; // 15 minutes
-      app.tokenExpiryTime = fixedTime + timeUntilExpiry;
-      fs.appendFileSync(debugFile, '[TEST] tokenExpiryTime set, calling scheduleTokenRefresh\n');
-
-      app.scheduleTokenRefresh();
-      fs.appendFileSync(debugFile, '[TEST] scheduleTokenRefresh called\n');
-      fs.appendFileSync(debugFile, '[TEST] All setTimeout delays: ' + JSON.stringify(allSetTimeoutDelays) + '\n');
-      fs.appendFileSync(debugFile, '[TEST] scheduledCallback defined: ' + (scheduledCallback !== null) + '\n');
-      fs.appendFileSync(debugFile, '[TEST] scheduleCallCount: ' + scheduleCallCount + '\n');
-      fs.appendFileSync(debugFile, '[TEST] mockFetch.calls count: ' + mockFetch.mock.calls.length + '\n');
-
-      expect(scheduledCallback).toBeDefined();
-
-      // Fast-forward time by calling the callback directly
-      // The callback should be the refreshTokens call
-      // Note: callback needs proper 'this' binding to app instance
-      // IMPORTANT: The callback internally calls refreshTokens() which is async,
-      // so we need to await the refreshTokens call directly, not just the callback
-      if (scheduledCallback) {
-        fs.appendFileSync(debugFile, '[TEST] About to invoke callback\n');
-        // Call the callback (which starts the async refreshTokens)
-        scheduledCallback.call(app);
-        // Wait for async operations to complete using microtask ticks
-        // refreshTokens() -> fetchCsrfToken() -> fetch() -> json() each need a tick
-        await Promise.resolve(); // tick 1: fetchCsrfToken promise resolves
-        await Promise.resolve(); // tick 2: fetch response promise resolves
-        await Promise.resolve(); // tick 3: response.json() promise resolves
-        await Promise.resolve(); // tick 4: refreshTokens promise resolves
-        fs.appendFileSync(debugFile, '[TEST] Callback invoked, mockFetch.calls count now: ' + mockFetch.mock.calls.length + '\n');
-        fs.appendFileSync(debugFile, '[TEST] refreshCallCount: ' + refreshCallCount + '\n');
-      } else {
-        fs.appendFileSync(debugFile, '[TEST] scheduledCallback was null/undefined\n');
-      }
-
-      fs.appendFileSync(debugFile, '[TEST] Final refreshCallCount: ' + refreshCallCount + '\n');
-
-      // Refresh should have been called
-      expect(refreshCallCount).toBe(1);
-
-      // Restore original setTimeout
-      global.setTimeout = originalSetTimeout;
-      Date.now.mockRestore();
+      // Old CSRF method should not exist
+      expect(app.fetchCsrfToken).toBeUndefined();
     });
 
-    test('should clear existing timer before scheduling new one', () => {
+    test('should not implement refreshTokens (moved to AuthService)', () => {
       const app = createApp();
-      app.tokenExpiryTime = Date.now() + (15 * 60 * 1000);
 
-      // Schedule first refresh
-      app.scheduleTokenRefresh();
-      const firstTimerId = app.refreshTimerId;
-
-      // Schedule second refresh
-      app.tokenExpiryTime = Date.now() + (15 * 60 * 1000);
-      app.scheduleTokenRefresh();
-      const secondTimerId = app.refreshTimerId;
-
-      // Should have different timer IDs (first one cleared)
-      expect(firstTimerId).not.toBe(secondTimerId);
+      // Old refresh method should not exist
+      expect(app.refreshTokens).toBeUndefined();
     });
 
-    test('should handle immediate refresh when token is already expired', async () => {
+    test('should not implement scheduleTokenRefresh (moved to AuthService)', () => {
       const app = createApp();
-      app.tokenExpiryTime = Date.now() - 1000; // Already expired
 
-      mockFetch.mockResolvedValueOnce({
-        json: async () => ({
-          success: true,
-          csrfToken: 'csrf-token'
-        })
-      });
+      // Old schedule method should not exist
+      expect(app.scheduleTokenRefresh).toBeUndefined();
+    });
 
-      mockFetch.mockResolvedValueOnce({
-        json: async () => ({
-          success: true,
-          accessToken: 'new-token',
-          expiresIn: 900
-        })
-      });
+    test('should not implement clearTokenRefreshTimer (moved to AuthService)', () => {
+      const app = createApp();
 
-      app.scheduleTokenRefresh();
-
-      // Should trigger immediate refresh
-      expect(mockFetch).toHaveBeenCalledWith('/api/csrf-token', expect.anything());
+      // Old clear method should not exist
+      expect(app.clearTokenRefreshTimer).toBeUndefined();
     });
   });
 
-  describe('clearTokenRefreshTimer', () => {
-    test('should clear refresh timer and reset expiry time', () => {
-      const app = createApp();
-      app.tokenExpiryTime = Date.now() + (15 * 60 * 1000);
-      app.refreshTimerId = setTimeout(() => {}, 1000);
-
-      expect(app.refreshTimerId).toBeDefined();
-      expect(app.tokenExpiryTime).toBeDefined();
-
-      app.clearTokenRefreshTimer();
-
-      expect(app.refreshTimerId).toBeNull();
-      expect(app.tokenExpiryTime).toBeNull();
-    });
-  });
-
-  describe('Integration: Token refresh on join', () => {
-    test('should schedule token refresh after joining room', () => {
+  describe('Room join without token management', () => {
+    test('should handle joined-room event without scheduling token refresh', () => {
       const app = createApp();
 
       // Simulate joined-room event
@@ -444,51 +205,40 @@ describe('BreadCallApp - CSRF and Token Refresh', () => {
           }
         });
 
-        // Should have set token expiry time
-        expect(app.tokenExpiryTime).toBeDefined();
+        // App should not have old token management properties
+        expect(app.tokenExpiryTime).toBeUndefined();
+        expect(app.refreshTimerId).toBeUndefined();
 
-        // Should be approximately 15 minutes from now
-        const expectedExpiry = Date.now() + (15 * 60 * 1000);
-        expect(app.tokenExpiryTime).toBeCloseTo(expectedExpiry, -2); // Within 100ms
-
-        // Should have scheduled refresh
-        expect(app.refreshTimerId).toBeDefined();
+        // But should have set participantId and room data
+        expect(app.participantId).toBe('test-participant');
       }
     });
   });
 
-  describe('Integration: Token refresh cleanup on leave', () => {
-    test('should clear token refresh timer when leaving room', () => {
+  describe('leaveRoom cleanup', () => {
+    test('should handle leaveRoom without clearing token refresh timer', () => {
       const app = createApp();
-
-      // Set up token refresh
-      app.tokenExpiryTime = Date.now() + (15 * 60 * 1000);
-      app.refreshTimerId = setTimeout(() => {}, 1000);
 
       // Call leaveRoom
       app.leaveRoom();
 
-      // Timer should be cleared
-      expect(app.refreshTimerId).toBeNull();
-      expect(app.tokenExpiryTime).toBeNull();
+      // Should disconnect signaling
+      expect(mockSignaling.send).toHaveBeenCalledWith('leave-room');
+      expect(mockSignaling.disconnect).toHaveBeenCalled();
     });
   });
 
-  describe('Integration: Token refresh cleanup on error', () => {
-    test('should clear token refresh timer on error during join', () => {
+  describe('error handling without token refresh cleanup', () => {
+    test('should handle error event without clearing token refresh timer', () => {
       const app = createApp();
 
-      // Set up token refresh
-      app.tokenExpiryTime = Date.now() + (15 * 60 * 1000);
-      app.refreshTimerId = setTimeout(() => {}, 1000);
-
-      // Simulate error event during join
+      // Simulate error event
       const errorHandler = mockSignaling.addEventListener.mock.calls.find(
         call => call[0] === 'error'
       );
 
       if (errorHandler) {
-        const [, handler] = errorHandler;
+        const [, handler] = jest.mocked(errorHandler);
         app.isJoining = true;
 
         // Trigger the error event
@@ -498,9 +248,9 @@ describe('BreadCallApp - CSRF and Token Refresh', () => {
           }
         });
 
-        // Timer should be cleared
-        expect(app.refreshTimerId).toBeNull();
-        expect(app.tokenExpiryTime).toBeNull();
+        // App should not have old token management properties
+        expect(app.tokenExpiryTime).toBeUndefined();
+        expect(app.refreshTimerId).toBeUndefined();
       }
     });
   });

@@ -167,6 +167,10 @@ class FileTransfer extends EventEmitter {
           duration: transfer.endTime - transfer.startTime,
           averageSpeed: transfer.file.size / ((transfer.endTime - transfer.startTime) / 1000)
         });
+        // Clean up completed transfer after a delay to allow for ack
+        setTimeout(() => {
+          this.transfers.delete(transfer.id);
+        }, 5000);
         return;
       }
 
@@ -271,7 +275,15 @@ class FileTransfer extends EventEmitter {
    * Handle binary data (chunk content)
    */
   handleBinaryData(peerId, data) {
-    const transfer = this.transfers.get(`${peerId}_receiving`);
+    // Find the active receiving transfer for this peer
+    let transfer = null;
+    for (const t of this.transfers.values()) {
+      if (t.peerId === peerId && t.receivedChunks && t.receivedCount < t.totalChunks) {
+        transfer = t;
+        break;
+      }
+    }
+
     if (transfer && transfer.currentChunkIndex !== undefined) {
       transfer.receivedChunks[transfer.currentChunkIndex] = data;
       transfer.receivedCount++;
@@ -327,6 +339,8 @@ class FileTransfer extends EventEmitter {
     if (transfer) {
       transfer.status = 'error';
       this.emit('transfer-error', { transfer, error });
+      // Clean up failed transfer
+      this.transfers.delete(transferId);
     }
   }
 

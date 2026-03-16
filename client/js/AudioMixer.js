@@ -132,12 +132,21 @@ class AudioMixer {
   removeSource(sourceId) {
     const sourceData = this.sources.get(sourceId);
     if (sourceData) {
-      sourceData.source.disconnect();
-      sourceData.gainNode.disconnect();
-      sourceData.eqNodes.lowEQ.disconnect();
-      sourceData.eqNodes.midEQ.disconnect();
-      sourceData.eqNodes.highEQ.disconnect();
+      // Disconnect in reverse order of connection to avoid orphaned nodes
       sourceData.highPass.disconnect();
+      sourceData.eqNodes.highEQ.disconnect();
+      sourceData.eqNodes.midEQ.disconnect();
+      sourceData.eqNodes.lowEQ.disconnect();
+      sourceData.gainNode.disconnect();
+      sourceData.source.disconnect();
+
+      // Clear references to help GC
+      sourceData.highPass = null;
+      sourceData.eqNodes = null;
+      sourceData.gainNode = null;
+      sourceData.source = null;
+      sourceData.stream = null;
+
       this.sources.delete(sourceId);
       console.log(`[AudioMixer] Removed source: ${sourceId}`);
     }

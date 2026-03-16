@@ -41,10 +41,14 @@ app.use(cors({
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
+      console.warn(`[CORS] Rejected request from origin: ${origin}`);
+      console.warn(`[CORS] Allowed origins: ${allowedOrigins.join(', ')}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token']
 }));
 app.use(express.json());
 app.use(cookieParser());
@@ -131,13 +135,80 @@ app.get('/api/webrtc-config', (req, res) => {
   });
 });
 
-// Get session info for auto-rejoin (returns roomId if user has valid token in cookie)
-app.get('/api/session/room', async (req, res) => {
-  const jwt = req.cookies?.jwt;
+// Refresh access token using refresh token cookie
+app.post('/api/auth/refresh', async (req, res) => {
+  try {
+    const refreshTokenId = req.cookies?.refreshToken;
 
-  if (jwt) {
+    if (!refreshTokenId) {
+      return res.status(401).json({
+        success: false,
+        error: 'No refresh token provided'
+      });
+    }
+
+    // Validate refresh token
+    const validation = await tokenManager.validateRefreshToken(refreshTokenId);
+
+    if (!validation.valid) {
+      // Clear invalid refresh token cookie
+      res.clearCookie('refreshToken');
+      return res.status(401).json({
+        success: false,
+        error: `Invalid refresh token: ${validation.reason}`
+      });
+    }
+
+    // Generate new access token from refresh token data
+    const tokenResult = await tokenManager.generateTokenPair({
+      type: validation.payload.type,
+      roomId: validation.payload.roomId,
+      userId: validation.payload.userId,
+      permissions: tokenManager._getDefaultPermissions(validation.payload.type)
+    });
+
+    // Set new refresh token in HttpOnly cookie (rotate refresh token)
+    res.cookie('refreshToken', tokenResult.tokenId, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    });
+
+    // Revoke old refresh token after rotation
+    await tokenManager.revokeToken(refreshTokenId, 'rotated');
+
+    // Return new access token in response body
+    res.json({
+      success: true,
+      accessToken: tokenResult.accessToken,
+      expiresIn: tokenResult.expiresIn
+    });
+  } catch (error) {
+    console.error('[API] Token refresh error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Token refresh failed'
+    });
+  }
+});
+
+// Get session info for auto-rejoin (returns roomId if user has valid token)
+app.get('/api/session/room', async (req, res) => {
+  // Try to get token from Authorization header first
+  let token = null;
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7);
+  }
+  // Fallback to jwt cookie for backward compatibility
+  if (!token && req.cookies?.jwt) {
+    token = req.cookies.jwt;
+  }
+
+  if (token) {
     // Validate token is still valid
-    const validation = await tokenManager.validateAccessToken(jwt);
+    const validation = await tokenManager.validateAccessToken(token);
     if (validation.valid) {
       // Only return hasRoom for actual room tokens, not admin tokens
       const hasRealRoom = validation.payload.roomId &&
@@ -165,9 +236,12 @@ app.get('/api/session/room', async (req, res) => {
 // User login - authenticate user and return JWT token
 app.post('/api/auth/login', async (req, res) => {
   try {
+    console.log('[API] Login attempt received:', req.body?.username);
+
     const { username, password } = req.body;
 
     if (!username || !password) {
+      console.log('[API] Login rejected: missing username or password');
       return res.status(400).json({
         success: false,
         error: 'Username and password required'
@@ -175,19 +249,24 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     // Authenticate user credentials
+    console.log('[API] Authenticating user:', username);
     const authResult = await userManager.authenticateUser(username, password);
 
     if (!authResult.success) {
+      console.log('[API] Authentication failed for user:', username);
       return res.status(401).json({
         success: false,
         error: authResult.error || 'Invalid credentials'
       });
     }
 
+    console.log('[API] User authenticated successfully:', username, 'role:', authResult.user.role);
+
     // Determine token type based on user role
     const tokenType = authResult.user.role === 'admin' ? 'admin_token' : 'room_access';
 
     // Generate JWT token pair
+    console.log('[API] Generating token pair for user:', username);
     const tokenResult = await tokenManager.generateTokenPair({
       type: tokenType,
       roomId: 'admin',
@@ -197,15 +276,20 @@ app.post('/api/auth/login', async (req, res) => {
         : ['room:view', 'stream:publish', 'chat:send']
     });
 
-    // Set JWT in HttpOnly cookie
-    res.cookie('jwt', tokenResult.accessToken, {
+    console.log('[API] Token generated successfully for user:', username);
+
+    // Set refresh token in HttpOnly cookie (not access token)
+    res.cookie('refreshToken', tokenResult.tokenId, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: tokenResult.expiresIn * 1000
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
     });
 
-    res.json({
+    console.log('[API] Sending login response for user:', username);
+
+    // Return access token in response body (client stores in memory)
+    return res.json({
       success: true,
       user: {
         id: authResult.user.id,
@@ -213,21 +297,26 @@ app.post('/api/auth/login', async (req, res) => {
         role: authResult.user.role,
         displayName: authResult.user.displayName
       },
-      tokenId: tokenResult.tokenId,
+      accessToken: tokenResult.accessToken,
       expiresIn: tokenResult.expiresIn
     });
   } catch (error) {
-    console.error('[API] Login error:', error.message);
-    res.status(500).json({
+    console.error('[API] Login error:', error.message, error.stack);
+    return res.status(500).json({
       success: false,
-      error: 'Login failed'
+      error: 'Login failed: ' + error.message
     });
   }
 });
 
-// User logout - clear JWT cookie
-app.post('/api/auth/logout', (req, res) => {
-  res.clearCookie('jwt');
+// User logout - clear refresh token cookie and revoke token
+app.post('/api/auth/logout', async (req, res) => {
+  const tokenId = req.cookies?.refreshToken;
+  if (tokenId) {
+    // Revoke the refresh token in database/redis
+    await tokenManager.revokeRefreshToken(tokenId);
+    res.clearCookie('refreshToken');
+  }
   res.json({ success: true });
 });
 
@@ -616,6 +705,17 @@ function getTokenErrorMessage(reason) {
   return messages[reason] || 'Invalid or expired token';
 }
 
+// Global error handler - must be after all routes
+app.use((err, req, res, next) => {
+  console.error('[Server] Unhandled error:', err.message, err.stack);
+  if (!res.headersSent) {
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
 // SPA catch-all route - serve index.html for unknown paths
 // This enables HTML5 History API routing (clean URLs without #)
 app.get('{*path}', (req, res, next) => {
@@ -671,6 +771,18 @@ const parseTokenFromCookie = (cookie) => {
   return decodeURIComponent(match[1]);
 };
 
+// Parse token from WebSocket URL query parameters
+const parseTokenFromUrl = (url) => {
+  if (!url) return null;
+  try {
+    const urlObj = new URL(url, 'http://localhost');
+    const token = urlObj.searchParams.get('token');
+    return token || null;
+  } catch {
+    return null;
+  }
+};
+
 // Handle WebSocket connections
 wss.on('connection', async (ws, req) => {
   // Validate origin
@@ -681,9 +793,11 @@ wss.on('connection', async (ws, req) => {
     return;
   }
 
-  // Parse token from cookie
+  // Parse token from cookie (backward compat) or URL query param
   const cookie = req.headers.cookie;
-  const token = parseTokenFromCookie(cookie);
+  const cookieToken = parseTokenFromCookie(cookie);
+  const urlToken = parseTokenFromUrl(req.url);
+  const token = urlToken || cookieToken;
 
   console.log(`[WebSocket] New connection from ${origin || 'unknown origin'}${token ? ' (has token)' : ' (no token)'}`);
 
@@ -720,6 +834,10 @@ async function startServer() {
     const seedFilePath = path.join(__dirname, '../database/seed/001-roles-permissions.sql');
     await db.loadSeedData(seedFilePath);
 
+    // Initialize Redis Client FIRST (required by other managers)
+    redisClient = new RedisClient();
+    await redisClient.connect();
+
     // Initialize RBAC Manager
     rbacManager = new RBACManager(db, redisClient);
     await rbacManager.initialize();
@@ -727,10 +845,6 @@ async function startServer() {
     // Initialize UserManager
     userManager = new UserManager(db, rbacManager, redisClient);
     await userManager.initialize();
-
-    // Initialize Redis Client
-    redisClient = new RedisClient();
-    await redisClient.connect();
 
     // Initialize TokenManager
     tokenManager = new TokenManager(redisClient, db);

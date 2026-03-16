@@ -75,7 +75,8 @@ class Database {
   // ===========================================================================
 
   async insertRefreshToken(tokenData) {
-    await this.query(
+    console.log('[Database] insertRefreshToken called for tokenId:', tokenData.tokenId);
+    const result = await this.query(
       `INSERT INTO refresh_tokens
        (token_id, type, room_id, user_id, expires_at, created_at, revoked_at, revoked_reason, rotated_to, rotated_from)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -102,6 +103,8 @@ class Database {
         tokenData.rotatedFrom || null
       ]
     );
+    console.log('[Database] insertRefreshToken complete for tokenId:', tokenData.tokenId);
+    return result;
   }
 
   async getRefreshToken(tokenId) {

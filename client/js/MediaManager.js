@@ -31,10 +31,18 @@ class MediaManager extends EventTarget {
     canvas.height = 480;
     const ctx = canvas.getContext('2d');
 
+    // Store canvas reference for cleanup
+    this._testCanvas = canvas;
+
     // Draw animated test pattern
     let frame = 0;
+    let rafId = null;
+
     const draw = () => {
-      if (!canvas) return;
+      if (!this._testCanvas || this._testCanvas !== canvas) {
+        // Stop animation if canvas has been cleaned up or replaced
+        return;
+      }
       frame++;
       // Gradient background
       const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
@@ -58,9 +66,12 @@ class MediaManager extends EventTarget {
       ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
       ctx.fill();
 
-      requestAnimationFrame(draw);
+      rafId = requestAnimationFrame(draw);
     };
     draw();
+
+    // Store RAF ID for cleanup
+    this._testAnimationId = rafId;
 
     const stream = canvas.captureStream(30); // 30 FPS
     return stream;
@@ -202,12 +213,12 @@ class MediaManager extends EventTarget {
       const oldVideoTrack = this.videoTrack;
 
       // Replace track in local stream
-      this.localStream.removeTrack(oldVideoTrack);
+      if (oldVideoTrack) {
+        this.localStream.removeTrack(oldVideoTrack);
+        oldVideoTrack.stop();
+      }
       this.localStream.addTrack(newVideoTrack);
       this.videoTrack = newVideoTrack;
-
-      // Stop old track
-      oldVideoTrack.stop();
 
       // Stop new stream (we only need the track)
       newStream.getTracks().forEach(t => {
@@ -402,6 +413,13 @@ class MediaManager extends EventTarget {
    */
   stop() {
     this.stopAudioLevelMonitor();
+
+    // Stop test mode animation if running
+    if (this._testAnimationId) {
+      cancelAnimationFrame(this._testAnimationId);
+      this._testAnimationId = null;
+    }
+    this._testCanvas = null;
 
     if (this.localStream) {
       this.localStream.getTracks().forEach(track => track.stop());

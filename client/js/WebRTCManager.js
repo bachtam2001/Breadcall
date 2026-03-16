@@ -102,7 +102,16 @@ class WebRTCManager extends EventTarget {
       });
 
       // Consume the stream
-      whepClient.consume();
+      try {
+        await whepClient.consume();
+      } catch (consumeErr) {
+        console.error('[WebRTCManager] WHEP consume failed:', consumeErr);
+        this.dispatchEvent(new CustomEvent('error', { detail: consumeErr }));
+        this.dispatchEvent(new CustomEvent('connection-state-change', {
+          detail: { peerId: participantId, state: 'failed' }
+        }));
+        return;
+      }
 
       // Store connection
       this.playbackConnections.set(participantId, { pc: whepClient.pc, whepClient });

@@ -267,6 +267,10 @@ class DirectorView {
   }
 
   startStatsPolling() {
+    // Clear any existing interval to prevent duplicates
+    if (this.statsInterval) {
+      clearInterval(this.statsInterval);
+    }
     this.statsInterval = setInterval(() => {
       this.participants.forEach((participant) => {
         const statusEl = participant.card.querySelector('.connection-status');

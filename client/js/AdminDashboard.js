@@ -57,13 +57,23 @@ class AdminDashboard {
     return window.authService.hasPermission(permission, objectType);
   }
 
+  /**
+   * Helper to make authenticated API calls with automatic token refresh on 401
+   * @param {string} url - API endpoint
+   * @param {Object} options - Fetch options
+   * @returns {Promise<Response>} - Fetch response
+   */
+  async _apiCall(url, options = {}) {
+    return window.authService.fetchWithAuth(url, options);
+  }
+
   // =============================================================================
   // Room Management
   // =============================================================================
 
   async loadRooms() {
     try {
-      const response = await fetch('/api/admin/rooms');
+      const response = await this._apiCall('/api/admin/rooms');
       const data = await response.json();
       if (data.success) {
         this.rooms = data.rooms;
@@ -78,7 +88,7 @@ class AdminDashboard {
 
   async createRoom(options) {
     try {
-      const response = await fetch('/api/admin/rooms', {
+      const response = await this._apiCall('/api/admin/rooms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(options)
@@ -103,7 +113,7 @@ class AdminDashboard {
     }
 
     try {
-      const response = await fetch('/api/admin/rooms/' + roomId, {
+      const response = await this._apiCall('/api/admin/rooms/' + roomId, {
         method: 'DELETE'
       });
 
@@ -121,7 +131,7 @@ class AdminDashboard {
 
   async updateRoomSettings(roomId, settings) {
     try {
-      const response = await fetch('/api/admin/rooms/' + roomId + '/settings', {
+      const response = await this._apiCall('/api/admin/rooms/' + roomId + '/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)
@@ -141,7 +151,7 @@ class AdminDashboard {
 
   async loadRoomParticipants(roomId) {
     try {
-      const response = await fetch('/api/admin/rooms/' + roomId + '/participants');
+      const response = await this._apiCall('/api/admin/rooms/' + roomId + '/participants');
       const data = await response.json();
       if (data.success) {
         return { participants: data.participants || [], directors: data.directors || [] };
@@ -614,15 +624,18 @@ class AdminDashboard {
       self.handleGenerateToken();
     });
 
-    var copyTokenUrlBtn = document.getElementById('copy-token-url-btn');
-    if (copyTokenUrlBtn) copyTokenUrlBtn.addEventListener('click', function() {
-      self.copyTokenUrl();
-    });
-
-    var copyTokenStringBtn = document.getElementById('copy-token-string-btn');
-    if (copyTokenStringBtn) copyTokenStringBtn.addEventListener('click', function() {
-      self.copyTokenString();
-    });
+    // Use event delegation for copy buttons to prevent multiple bindings
+    var tokenResult = document.getElementById('token-result');
+    if (tokenResult && !tokenResult._hasDelegatedListeners) {
+      tokenResult._hasDelegatedListeners = true;
+      tokenResult.addEventListener('click', function(e) {
+        if (e.target.id === 'copy-token-url-btn') {
+          self.copyTokenUrl();
+        } else if (e.target.id === 'copy-token-string-btn') {
+          self.copyTokenString();
+        }
+      });
+    }
 
     // Manage tokens modal
     var closeTokensModal = document.getElementById('close-tokens-modal');
@@ -911,7 +924,7 @@ class AdminDashboard {
     }
 
     try {
-      var response = await fetch('/api/tokens', {
+      var response = await this._apiCall('/api/tokens', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody)
@@ -1014,7 +1027,7 @@ class AdminDashboard {
 
   async loadRoomTokens(roomId) {
     try {
-      var response = await fetch('/api/admin/rooms/' + roomId + '/tokens');
+      var response = await this._apiCall('/api/admin/rooms/' + roomId + '/tokens');
       var data = await response.json();
 
       if (data.success) {
@@ -1106,7 +1119,7 @@ class AdminDashboard {
 
     // Generate new token for copying
     try {
-      var response = await fetch('/api/tokens', {
+      var response = await this._apiCall('/api/tokens', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1132,7 +1145,7 @@ class AdminDashboard {
   async revokeToken(tokenId) {
     var self = this;
     try {
-      var response = await fetch('/api/tokens/' + tokenId, {
+      var response = await this._apiCall('/api/tokens/' + tokenId, {
         method: 'DELETE'
       });
 

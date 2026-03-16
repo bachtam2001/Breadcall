@@ -208,33 +208,61 @@ class SoloView {
   }
 
   async startWHEP(streamName) {
+    // Prevent concurrent connection attempts
+    if (this._isConnecting) {
+      console.log('[SoloView] Connection already in progress, ignoring');
+      return;
+    }
+    this._isConnecting = true;
+
     const loading = document.getElementById('loading');
-    if (!this.video) return;
+    if (!this.video) {
+      this._isConnecting = false;
+      return;
+    }
+
+    // Clean up any existing connection first
+    if (this.whepClient) {
+      this.whepClient.close();
+      this.whepClient = null;
+    }
 
     console.log('[SoloView] Starting WHEP for stream:', streamName);
 
-    // Detect codec support and fallback to H264 if H265 not supported
-    const h265Supported = await detectH265Support();
-    const videoCodec = h265Supported ? 'H265' : 'H264';
-    console.log('[SoloView] Using video codec:', videoCodec, h265Supported ? '(H265 supported)' : '(H265 not supported, fallback to H264)');
+    try {
+      // Detect codec support and fallback to H264 if H265 not supported
+      const h265Supported = await detectH265Support();
+      const videoCodec = h265Supported ? 'H265' : 'H264';
+      console.log('[SoloView] Using video codec:', videoCodec, h265Supported ? '(H265 supported)' : '(H265 not supported, fallback to H264)');
 
-    this.whepClient = new WHEPClient(
-      `/view/${streamName}`,
-      this.video,
-      {
-        videoCodec,
-        audioCodec: 'opus',
-        onTrack: () => {
-          console.log('[SoloView] Remote track received');
-          if (loading) loading.style.display = 'none';
+      this.whepClient = new WHEPClient(
+        `/view/${streamName}`,
+        this.video,
+        {
+          videoCodec,
+          audioCodec: 'opus',
+          onTrack: () => {
+            console.log('[SoloView] Remote track received');
+            if (loading) loading.style.display = 'none';
+            this._isConnecting = false;
+          }
         }
-      }
-    );
+      );
 
-    await this.whepClient.consume();
+      await this.whepClient.consume();
+    } catch (error) {
+      console.error('[SoloView] WHEP connection failed:', error);
+      this._isConnecting = false;
+      if (loading) {
+        loading.textContent = 'Connection failed';
+      }
+    }
   }
 
   showLoading(message) {
+    // Reset connection state
+    this._isConnecting = false;
+
     const loading = document.getElementById('loading');
     if (loading) {
       loading.textContent = message;
@@ -251,7 +279,11 @@ class SoloView {
   }
 
   cleanup() {
-    if (this.whepClient) this.whepClient.close();
+    this._isConnecting = false;
+    if (this.whepClient) {
+      this.whepClient.close();
+      this.whepClient = null;
+    }
     if (this.signaling) this.signaling.disconnect();
   }
 }

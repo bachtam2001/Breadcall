@@ -388,6 +388,13 @@ class OperatorDashboard {
 if (window.location.pathname === '/monitoring' ||
     window.location.pathname === '/monitoring/') {
   window.operatorDashboard = new OperatorDashboard();
+
+  // Cleanup on page unload to prevent interval leaks
+  window.addEventListener('beforeunload', () => {
+    if (window.operatorDashboard) {
+      window.operatorDashboard.destroy();
+    }
+  });
 }
 
 window.OperatorDashboard = OperatorDashboard;

@@ -23,14 +23,18 @@ class TokenManager {
    * Generate a new access and refresh token pair
    */
   async generateTokenPair(options) {
+    console.log('[TokenManager] generateTokenPair started for userId:', options.userId);
     const tokenId = uuidv4();
+    console.log('[TokenManager] Generated tokenId:', tokenId);
     const now = Math.floor(Date.now() / 1000);
 
     // Generate access token (JWT)
+    console.log('[TokenManager] Generating JWT access token...');
     const accessToken = this._generateAccessToken({
       tokenId,
       ...options
     }, now);
+    console.log('[TokenManager] JWT access token generated');
 
     // Generate refresh token data
     const refreshTokenData = {
@@ -44,13 +48,16 @@ class TokenManager {
     };
 
     // Store in Redis
+    console.log('[TokenManager] Storing refresh token in Redis, key:', `refresh:${tokenId}`, 'connected:', this.redis.connected);
     await this.redis.setJson(
       `refresh:${tokenId}`,
       refreshTokenData,
       this.refreshTokenExpiry
     );
+    console.log('[TokenManager] Redis storage complete');
 
     // Store in Database
+    console.log('[TokenManager] Storing refresh token in Database...');
     await this.db.insertRefreshToken({
       tokenId,
       type: options.type,
@@ -59,6 +66,7 @@ class TokenManager {
       expiresAt: Date.now() + (this.refreshTokenExpiry * 1000),
       createdAt: Date.now()
     });
+    console.log('[TokenManager] Database storage complete');
 
     return {
       accessToken,

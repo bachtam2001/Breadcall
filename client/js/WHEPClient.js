@@ -26,8 +26,14 @@ class WHEPClient {
    */
   close() {
     this.state = 'closed';
-    if (this.pc !== null) this.pc.close();
-    if (this.restartTimeout !== null) clearTimeout(this.restartTimeout);
+    if (this.pc !== null) {
+      this.pc.close();
+      this.pc = null;
+    }
+    if (this.restartTimeout !== null) {
+      clearTimeout(this.restartTimeout);
+      this.restartTimeout = null;
+    }
   }
 
   /**

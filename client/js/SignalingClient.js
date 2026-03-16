@@ -18,11 +18,12 @@ class SignalingClient extends EventTarget {
 
   /**
    * Connect to signaling server
-   * @param {string} url - WebSocket URL
+   * @param {string} url - WebSocket URL (optional, will use authService URL if not provided)
    */
   connect(url) {
-    this.url = url;
-    this.ws = new WebSocket(url);
+    // Use provided URL or get authenticated URL from authService
+    this.url = url || (window.authService ? window.authService.getWebSocketUrl() : `ws://${window.location.host}/ws`);
+    this.ws = new WebSocket(this.url);
 
     this.ws.onopen = () => {
       console.log('[SignalingClient] Connected');
@@ -170,9 +171,16 @@ class SignalingClient extends EventTarget {
    */
   async validateToken(token, action = null) {
     try {
+      const headers = { 'Content-Type': 'application/json' };
+
+      // Include access token in Authorization header if available
+      if (window.authService?.getAccessToken()) {
+        headers['Authorization'] = `Bearer ${window.authService.getAccessToken()}`;
+      }
+
       const response = await fetch('/api/tokens/validate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ token, action })
       });
 
@@ -207,14 +215,26 @@ class SignalingClient extends EventTarget {
     // Extract pre-registered name from token if available
     const useName = validation.payload.metadata?.name || name;
 
-    // Connect to WebSocket
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+    // Connect to WebSocket (use authService URL if authenticated)
+    const wsUrl = window.authService ? window.authService.getWebSocketUrl() : `ws://${window.location.host}/ws`;
 
     return new Promise((resolve, reject) => {
-      const onConnected = () => {
-        this.removeEventListener('connected', onConnected);
+      let cleanedUp = false;
 
+      const cleanup = () => {
+        if (cleanedUp) return;
+        cleanedUp = true;
+        this.removeEventListener('connected', onConnected);
+        this.removeEventListener('joined-room', onResponse);
+        this.removeEventListener('error', onError);
+        // Clear the socket error listener timeout if pending
+        if (this._pendingJoinTimeout) {
+          clearTimeout(this._pendingJoinTimeout);
+          this._pendingJoinTimeout = null;
+        }
+      };
+
+      const onConnected = () => {
         // Send join with token
         this.send('join-room-with-token', {
           roomId,
@@ -225,22 +245,25 @@ class SignalingClient extends EventTarget {
 
       const onResponse = (e) => {
         if (e.detail.type === 'joined-room') {
-          this.removeEventListener('joined-room', onResponse);
-          this.removeEventListener('error', onError);
+          cleanup();
           resolve(e.detail);
         }
       };
 
       const onError = (e) => {
-        this.removeEventListener('connected', onConnected);
-        this.removeEventListener('joined-room', onResponse);
-        this.removeEventListener('error', onError);
+        cleanup();
         reject(new Error(e.detail.message));
       };
 
       this.addEventListener('connected', onConnected, { once: true });
-      this.addEventListener('joined-room', onResponse, { once: true });
-      this.addEventListener('error', onError, { once: true });
+      this.addEventListener('joined-room', onResponse);
+      this.addEventListener('error', onError);
+
+      // Timeout to prevent hanging if server never responds
+      this._pendingJoinTimeout = setTimeout(() => {
+        cleanup();
+        reject(new Error('Join room timeout - no response from server'));
+      }, 30000);
 
       if (!this.isConnected()) {
         this.connect(wsUrl);
