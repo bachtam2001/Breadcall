@@ -8,6 +8,34 @@
 --   - user registration disabled (admin creates all users)
 
 -- ============================================================================
+-- MIGRATION: First update old roles to avoid hierarchy conflicts
+-- ============================================================================
+
+-- ============================================================================
+-- MIGRATION: First update ALL old roles to negative hierarchy to avoid conflicts
+-- ============================================================================
+
+-- Temporarily disable the unique constraint by setting old roles to negative values
+-- super_admin (100) -> -1
+UPDATE roles SET hierarchy = -1 WHERE name = 'super_admin';
+
+-- room_admin (80) -> -2
+UPDATE roles SET hierarchy = -2 WHERE name = 'room_admin';
+
+-- moderator was 60, now co_director is 60 -> moderator becomes 50, so no conflict
+-- but if old moderator exists at 60, we need to update it
+UPDATE roles SET hierarchy = -3 WHERE name = 'moderator' AND hierarchy = 60;
+
+-- director was 50, now 70 -> no conflict unless old director still at 50
+UPDATE roles SET hierarchy = -4 WHERE name = 'director' AND hierarchy = 50;
+
+-- Migrate existing super_admin users to admin role
+UPDATE users SET role = 'admin' WHERE role = 'super_admin';
+
+-- Migrate existing room_admin users to director role (closest equivalent)
+UPDATE users SET role = 'director' WHERE role = 'room_admin';
+
+-- ============================================================================
 -- SYSTEM ROLES (Global permissions)
 -- ============================================================================
 INSERT INTO roles (name, hierarchy, description) VALUES
@@ -134,6 +162,3 @@ DELETE FROM role_permissions WHERE permission IN (
   'view_monitoring', 'join', 'send_audio', 'send_video', 'chat', 'view_solo',
   'view'
 ) AND object_type IN ('room', 'stream', 'user', 'system');
-
--- Note: room_admin and super_admin roles remain in DB for backward compatibility
--- but have no permissions. New code should use 'admin' role.
