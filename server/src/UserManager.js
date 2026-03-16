@@ -239,6 +239,59 @@ class UserManager {
     return true;
   }
 
+  async bulkDeleteUsers(userIds, actorId) {
+    const results = {
+      deleted: 0,
+      failed: []
+    };
+
+    for (const userId of userIds) {
+      try {
+        await this.deleteUser(userId, actorId);
+        results.deleted++;
+      } catch (error) {
+        results.failed.push({
+          userId,
+          error: error.message
+        });
+      }
+    }
+
+    return results;
+  }
+
+  async bulkChangeRole(userIds, newRole, actorId) {
+    const results = {
+      updated: 0,
+      failed: []
+    };
+
+    // Check if actor can assign this role
+    const actor = await this.getUserById(actorId);
+    if (!actor) {
+      throw new Error('Actor not found');
+    }
+
+    const canAssign = await this.rbac.canAssignRole(actor.role, newRole);
+    if (!canAssign && actor.role !== 'admin') {
+      throw new Error('Insufficient permissions to assign this role');
+    }
+
+    for (const userId of userIds) {
+      try {
+        await this.updateUserRole(userId, newRole, actorId);
+        results.updated++;
+      } catch (error) {
+        results.failed.push({
+          userId,
+          error: error.message
+        });
+      }
+    }
+
+    return results;
+  }
+
   async createBootstrapAdmin(username, password) {
     const existingAdmin = await this.db.getUserByUsername(username);
     if (existingAdmin) {

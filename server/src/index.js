@@ -599,6 +599,77 @@ app.get('/api/admin/users', requireAuth(), async (req, res) => {
   });
 });
 
+// Bulk delete users (admin only)
+app.post('/api/admin/users/bulk-delete', requireAuth(), async (req, res) => {
+  const hasPerm = await rbacManager.hasPermission(req.user.role, 'user:delete');
+  if (!hasPerm && req.user.role !== 'admin') {
+    return res.status(403).json({ success: false, error: 'Insufficient permissions' });
+  }
+
+  const { userIds } = req.body;
+
+  if (!Array.isArray(userIds) || userIds.length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'userIds must be a non-empty array'
+    });
+  }
+
+  try {
+    const results = await userManager.bulkDeleteUsers(userIds, req.user.id);
+
+    res.json({
+      success: true,
+      ...results
+    });
+  } catch (error) {
+    console.error('[API] Error in bulk delete:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Bulk delete failed'
+    });
+  }
+});
+
+// Bulk change user role (admin only)
+app.post('/api/admin/users/bulk-role', requireAuth(), async (req, res) => {
+  const hasPerm = await rbacManager.hasPermission(req.user.role, 'user:assign_role');
+  if (!hasPerm && req.user.role !== 'admin') {
+    return res.status(403).json({ success: false, error: 'Insufficient permissions' });
+  }
+
+  const { userIds, role } = req.body;
+
+  if (!Array.isArray(userIds) || userIds.length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'userIds must be a non-empty array'
+    });
+  }
+
+  if (!role) {
+    return res.status(400).json({
+      success: false,
+      error: 'Role is required'
+    });
+  }
+
+  try {
+    const results = await userManager.bulkChangeRole(userIds, role, req.user.id);
+
+    res.json({
+      success: true,
+      ...results
+    });
+  } catch (error) {
+    console.error('[API] Error in bulk role change:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Bulk role change failed'
+    });
+  }
+});
+
 // =============================================================================
 // Token API Routes
 // =============================================================================

@@ -229,6 +229,77 @@ describe('GET /api/admin/users', () => {
         }
       });
     });
+
+    // Bulk delete users route
+    app.post('/api/admin/users/bulk-delete', requireAuth(), async (req, res) => {
+      const hasPerm = await rbacManager.hasPermission(req.user.role, 'user:delete');
+      if (!hasPerm && req.user.role !== 'admin') {
+        return res.status(403).json({ success: false, error: 'Insufficient permissions' });
+      }
+
+      const { userIds } = req.body;
+
+      if (!Array.isArray(userIds) || userIds.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'userIds must be a non-empty array'
+        });
+      }
+
+      try {
+        const results = await userManager.bulkDeleteUsers(userIds, req.user.id);
+
+        res.json({
+          success: true,
+          ...results
+        });
+      } catch (error) {
+        console.error('[API] Error in bulk delete:', error);
+        res.status(500).json({
+          success: false,
+          error: 'Bulk delete failed'
+        });
+      }
+    });
+
+    // Bulk change user role route
+    app.post('/api/admin/users/bulk-role', requireAuth(), async (req, res) => {
+      const hasPerm = await rbacManager.hasPermission(req.user.role, 'user:assign_role');
+      if (!hasPerm && req.user.role !== 'admin') {
+        return res.status(403).json({ success: false, error: 'Insufficient permissions' });
+      }
+
+      const { userIds, role } = req.body;
+
+      if (!Array.isArray(userIds) || userIds.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'userIds must be a non-empty array'
+        });
+      }
+
+      if (!role) {
+        return res.status(400).json({
+          success: false,
+          error: 'Role is required'
+        });
+      }
+
+      try {
+        const results = await userManager.bulkChangeRole(userIds, role, req.user.id);
+
+        res.json({
+          success: true,
+          ...results
+        });
+      } catch (error) {
+        console.error('[API] Error in bulk role change:', error);
+        res.status(500).json({
+          success: false,
+          error: 'Bulk role change failed'
+        });
+      }
+    });
   });
 
   afterEach(async () => {
@@ -457,6 +528,322 @@ describe('GET /api/admin/users', () => {
       expect(response.body.pagination.limit).toBe(2);
       expect(response.body.pagination.total).toBe(mockUsers.length);
       expect(response.body.pagination.totalPages).toBe(Math.ceil(mockUsers.length / 2));
+    } finally {
+      restoreJwt();
+    }
+  });
+
+  // =============================================================================
+  // Bulk Delete Tests
+  // =============================================================================
+
+  test('should return 401 without authentication for bulk delete', async () => {
+    const response = await request(app)
+      .post('/api/admin/users/bulk-delete')
+      .send({ userIds: ['user-001', 'user-002'] })
+      .expect(401);
+
+    expect(response.body).toEqual({
+      success: false,
+      error: 'Unauthorized'
+    });
+  });
+
+  test('should return 400 for empty userIds array in bulk delete', async () => {
+    const restoreJwt = mockJwtVerify(createAdminPayload());
+
+    try {
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-admin',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-001',
+        permissions: ['*']
+      }, Date.now());
+
+      const response = await request(app)
+        .post('/api/admin/users/bulk-delete')
+        .set('Cookie', [`jwt=${token}`])
+        .send({ userIds: [] })
+        .expect(400);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe('userIds must be a non-empty array');
+    } finally {
+      restoreJwt();
+    }
+  });
+
+  test('should return 400 for non-array userIds in bulk delete', async () => {
+    const restoreJwt = mockJwtVerify(createAdminPayload());
+
+    try {
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-admin',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-001',
+        permissions: ['*']
+      }, Date.now());
+
+      const response = await request(app)
+        .post('/api/admin/users/bulk-delete')
+        .set('Cookie', [`jwt=${token}`])
+        .send({ userIds: 'user-001' })
+        .expect(400);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe('userIds must be a non-empty array');
+    } finally {
+      restoreJwt();
+    }
+  });
+
+  test('should successfully delete multiple users', async () => {
+    const restoreJwt = mockJwtVerify(createAdminPayload());
+
+    try {
+      userManager.bulkDeleteUsers = jest.fn().mockResolvedValue({
+        deleted: 3,
+        failed: []
+      });
+
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-admin',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-001',
+        permissions: ['*']
+      }, Date.now());
+
+      const response = await request(app)
+        .post('/api/admin/users/bulk-delete')
+        .set('Cookie', [`jwt=${token}`])
+        .send({ userIds: ['user-002', 'user-003', 'user-004'] })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.deleted).toBe(3);
+      expect(response.body.failed).toEqual([]);
+    } finally {
+      restoreJwt();
+    }
+  });
+
+  test('should return partial failure info for bulk delete', async () => {
+    const restoreJwt = mockJwtVerify(createAdminPayload());
+
+    try {
+      userManager.bulkDeleteUsers = jest.fn().mockResolvedValue({
+        deleted: 2,
+        failed: [
+          { userId: 'user-003', error: 'Insufficient permissions to delete this user' }
+        ]
+      });
+
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-admin',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-001',
+        permissions: ['*']
+      }, Date.now());
+
+      const response = await request(app)
+        .post('/api/admin/users/bulk-delete')
+        .set('Cookie', [`jwt=${token}`])
+        .send({ userIds: ['user-002', 'user-003', 'user-004'] })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.deleted).toBe(2);
+      expect(response.body.failed).toHaveLength(1);
+      expect(response.body.failed[0].userId).toBe('user-003');
+    } finally {
+      restoreJwt();
+    }
+  });
+
+  test('should return 403 for non-admin without user:delete permission for bulk delete', async () => {
+    const restoreJwt = mockJwtVerify(createOperatorPayload());
+
+    try {
+      rbacManager.hasPermission = jest.fn().mockResolvedValue(false);
+
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-operator',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-002',
+        permissions: []
+      }, Date.now());
+
+      const response = await request(app)
+        .post('/api/admin/users/bulk-delete')
+        .set('Cookie', [`jwt=${token}`])
+        .send({ userIds: ['user-003'] })
+        .expect(403);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe('Insufficient permissions');
+    } finally {
+      restoreJwt();
+    }
+  });
+
+  // =============================================================================
+  // Bulk Role Change Tests
+  // =============================================================================
+
+  test('should return 401 without authentication for bulk role change', async () => {
+    const response = await request(app)
+      .post('/api/admin/users/bulk-role')
+      .send({ userIds: ['user-001', 'user-002'], role: 'operator' })
+      .expect(401);
+
+    expect(response.body).toEqual({
+      success: false,
+      error: 'Unauthorized'
+    });
+  });
+
+  test('should return 400 for empty userIds array in bulk role change', async () => {
+    const restoreJwt = mockJwtVerify(createAdminPayload());
+
+    try {
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-admin',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-001',
+        permissions: ['*']
+      }, Date.now());
+
+      const response = await request(app)
+        .post('/api/admin/users/bulk-role')
+        .set('Cookie', [`jwt=${token}`])
+        .send({ userIds: [], role: 'operator' })
+        .expect(400);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe('userIds must be a non-empty array');
+    } finally {
+      restoreJwt();
+    }
+  });
+
+  test('should return 400 for missing role in bulk role change', async () => {
+    const restoreJwt = mockJwtVerify(createAdminPayload());
+
+    try {
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-admin',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-001',
+        permissions: ['*']
+      }, Date.now());
+
+      const response = await request(app)
+        .post('/api/admin/users/bulk-role')
+        .set('Cookie', [`jwt=${token}`])
+        .send({ userIds: ['user-002', 'user-003'] })
+        .expect(400);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe('Role is required');
+    } finally {
+      restoreJwt();
+    }
+  });
+
+  test('should successfully change role for multiple users', async () => {
+    const restoreJwt = mockJwtVerify(createAdminPayload());
+
+    try {
+      userManager.bulkChangeRole = jest.fn().mockResolvedValue({
+        updated: 3,
+        failed: []
+      });
+
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-admin',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-001',
+        permissions: ['*']
+      }, Date.now());
+
+      const response = await request(app)
+        .post('/api/admin/users/bulk-role')
+        .set('Cookie', [`jwt=${token}`])
+        .send({ userIds: ['user-002', 'user-003', 'user-004'], role: 'operator' })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.updated).toBe(3);
+      expect(response.body.failed).toEqual([]);
+    } finally {
+      restoreJwt();
+    }
+  });
+
+  test('should return partial failure info for bulk role change', async () => {
+    const restoreJwt = mockJwtVerify(createAdminPayload());
+
+    try {
+      userManager.bulkChangeRole = jest.fn().mockResolvedValue({
+        updated: 2,
+        failed: [
+          { userId: 'user-003', error: 'Invalid role' }
+        ]
+      });
+
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-admin',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-001',
+        permissions: ['*']
+      }, Date.now());
+
+      const response = await request(app)
+        .post('/api/admin/users/bulk-role')
+        .set('Cookie', [`jwt=${token}`])
+        .send({ userIds: ['user-002', 'user-003', 'user-004'], role: 'operator' })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.updated).toBe(2);
+      expect(response.body.failed).toHaveLength(1);
+      expect(response.body.failed[0].userId).toBe('user-003');
+    } finally {
+      restoreJwt();
+    }
+  });
+
+  test('should return 403 for non-admin without user:assign_role permission for bulk role change', async () => {
+    const restoreJwt = mockJwtVerify(createOperatorPayload());
+
+    try {
+      rbacManager.hasPermission = jest.fn().mockResolvedValue(false);
+
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-operator',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-002',
+        permissions: []
+      }, Date.now());
+
+      const response = await request(app)
+        .post('/api/admin/users/bulk-role')
+        .set('Cookie', [`jwt=${token}`])
+        .send({ userIds: ['user-003'], role: 'viewer' })
+        .expect(403);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe('Insufficient permissions');
     } finally {
       restoreJwt();
     }
