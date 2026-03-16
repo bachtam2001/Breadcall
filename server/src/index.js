@@ -542,7 +542,11 @@ app.put('/api/admin/rooms/:roomId/settings', requireAuth(), async (req, res) => 
   });
 });
 
-// List all users (admin with user:view_all permission)
+// =============================================================================
+// User Management API Routes
+// =============================================================================
+
+// Get all users (admin with user:view_all permission)
 app.get('/api/admin/users', requireAuth(), async (req, res) => {
   const hasPerm = await rbacManager.hasPermission(req.user.role, 'user:view_all');
   if (!hasPerm && req.user.role !== 'admin') {
@@ -599,53 +603,86 @@ app.get('/api/admin/users', requireAuth(), async (req, res) => {
   });
 });
 
-// Bulk delete users (admin only)
-app.post('/api/admin/users/bulk-delete', requireAuth(), async (req, res) => {
-  const hasPerm = await rbacManager.hasPermission(req.user.role, 'user:delete');
+// Create new user (admin only)
+app.post('/api/admin/users', requireAuth(), async (req, res) => {
+  const hasPerm = await rbacManager.hasPermission(req.user.role, 'user:create');
   if (!hasPerm && req.user.role !== 'admin') {
     return res.status(403).json({ success: false, error: 'Insufficient permissions' });
   }
 
-  const { userIds } = req.body;
+  const { username, password, role, displayName, email } = req.body;
 
-  if (!Array.isArray(userIds) || userIds.length === 0) {
+  // Validation
+  if (!username || !password || !role) {
     return res.status(400).json({
       success: false,
-      error: 'userIds must be a non-empty array'
+      error: 'Username, password, and role are required'
+    });
+  }
+
+  // Username validation: 3-32 chars, alphanumeric + underscore, starts with letter
+  const usernameRegex = /^[a-zA-Z][a-zA-Z0-9_]{2,31}$/;
+  if (!usernameRegex.test(username)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Username must be 3-32 characters, start with a letter, and contain only letters, numbers, and underscores'
+    });
+  }
+
+  // Password validation: minimum 8 characters
+  if (password.length < 8) {
+    return res.status(400).json({
+      success: false,
+      error: 'Password must be at least 8 characters long'
+    });
+  }
+
+  // Role validation
+  const roleData = await db.getRole(role);
+  if (!roleData) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid role'
     });
   }
 
   try {
-    const results = await userManager.bulkDeleteUsers(userIds, req.user.id);
+    const newUser = await userManager.createUser({
+      username,
+      password,
+      role,
+      displayName,
+      email
+    });
 
-    res.json({
+    res.status(201).json({
       success: true,
-      ...results
+      user: newUser
     });
   } catch (error) {
-    console.error('[API] Error in bulk delete:', error);
+    if (error.message === 'Username already exists') {
+      return res.status(400).json({
+        success: false,
+        error: 'Username already exists'
+      });
+    }
+    console.error('[API] Error creating user:', error);
     res.status(500).json({
       success: false,
-      error: 'Bulk delete failed'
+      error: 'Failed to create user'
     });
   }
 });
 
-// Bulk change user role (admin only)
-app.post('/api/admin/users/bulk-role', requireAuth(), async (req, res) => {
+// Update user role (admin only)
+app.put('/api/admin/users/:id/role', requireAuth(), async (req, res) => {
   const hasPerm = await rbacManager.hasPermission(req.user.role, 'user:assign_role');
   if (!hasPerm && req.user.role !== 'admin') {
     return res.status(403).json({ success: false, error: 'Insufficient permissions' });
   }
 
-  const { userIds, role } = req.body;
-
-  if (!Array.isArray(userIds) || userIds.length === 0) {
-    return res.status(400).json({
-      success: false,
-      error: 'userIds must be a non-empty array'
-    });
-  }
+  const { id } = req.params;
+  const { role } = req.body;
 
   if (!role) {
     return res.status(400).json({
@@ -655,17 +692,80 @@ app.post('/api/admin/users/bulk-role', requireAuth(), async (req, res) => {
   }
 
   try {
-    const results = await userManager.bulkChangeRole(userIds, role, req.user.id);
+    const updatedUser = await userManager.updateUserRole(id, role, req.user.id);
 
     res.json({
       success: true,
-      ...results
+      user: updatedUser
     });
   } catch (error) {
-    console.error('[API] Error in bulk role change:', error);
+    if (error.message === 'User not found') {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    if (error.message === 'Invalid role') {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid role'
+      });
+    }
+    if (error.message.includes('Insufficient permissions')) {
+      return res.status(403).json({
+        success: false,
+        error: error.message
+      });
+    }
+    console.error('[API] Error updating user role:', error);
     res.status(500).json({
       success: false,
-      error: 'Bulk role change failed'
+      error: 'Failed to update user role'
+    });
+  }
+});
+
+// Delete user (admin only)
+app.delete('/api/admin/users/:id', requireAuth(), async (req, res) => {
+  const hasPerm = await rbacManager.hasPermission(req.user.role, 'user:delete');
+  if (!hasPerm && req.user.role !== 'admin') {
+    return res.status(403).json({ success: false, error: 'Insufficient permissions' });
+  }
+
+  const { id } = req.params;
+
+  // Check if trying to delete self
+  if (id === req.user.userId) {
+    return res.status(403).json({
+      success: false,
+      error: 'Cannot delete your own account'
+    });
+  }
+
+  try {
+    await userManager.deleteUser(id, req.user.userId);
+
+    res.json({
+      success: true,
+      message: 'User deleted successfully'
+    });
+  } catch (error) {
+    if (error.message === 'User not found') {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    if (error.message.includes('Insufficient permissions')) {
+      return res.status(403).json({
+        success: false,
+        error: error.message
+      });
+    }
+    console.error('[API] Error deleting user:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete user'
     });
   }
 });
