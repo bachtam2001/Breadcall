@@ -674,6 +674,57 @@ app.post('/api/admin/users', requireAuth(), async (req, res) => {
   }
 });
 
+// Update user role (admin only)
+app.put('/api/admin/users/:id/role', requireAuth(), async (req, res) => {
+  const hasPerm = await rbacManager.hasPermission(req.user.role, 'user:assign_role');
+  if (!hasPerm && req.user.role !== 'admin') {
+    return res.status(403).json({ success: false, error: 'Insufficient permissions' });
+  }
+
+  const { id } = req.params;
+  const { role } = req.body;
+
+  if (!role) {
+    return res.status(400).json({
+      success: false,
+      error: 'Role is required'
+    });
+  }
+
+  try {
+    const updatedUser = await userManager.updateUserRole(id, role, req.user.id);
+
+    res.json({
+      success: true,
+      user: updatedUser
+    });
+  } catch (error) {
+    if (error.message === 'User not found') {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    if (error.message === 'Invalid role') {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid role'
+      });
+    }
+    if (error.message.includes('Insufficient permissions')) {
+      return res.status(403).json({
+        success: false,
+        error: error.message
+      });
+    }
+    console.error('[API] Error updating user role:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update user role'
+    });
+  }
+});
+
 // =============================================================================
 // Token API Routes
 // =============================================================================

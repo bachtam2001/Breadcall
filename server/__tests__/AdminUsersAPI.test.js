@@ -897,3 +897,358 @@ describe('POST /api/admin/users', () => {
     }
   });
 });
+
+/**
+ * PUT /api/admin/users/:id/role Tests
+ */
+describe('PUT /api/admin/users/:id/role', () => {
+  let app;
+  let userManager;
+  let rbacManager;
+  let tokenManager;
+  let mockDb;
+  let mockRedis;
+
+  // Helper to create a mock jwt.verify that returns a specific payload
+  function mockJwtVerify(payload) {
+    const originalVerify = jwt.verify;
+    jwt.verify = jest.fn().mockReturnValue(payload);
+    return () => { jwt.verify = originalVerify; };
+  }
+
+  // Helper to create admin token payload
+  function createAdminPayload() {
+    return {
+      tokenId: 'test-token-admin',
+      type: 'admin_token',
+      roomId: null,
+      userId: 'user-001',
+      permissions: ['*'],
+      role: 'admin',
+      username: 'admin'
+    };
+  }
+
+  // Helper to create director token payload
+  function createDirectorPayload() {
+    return {
+      tokenId: 'test-token-director',
+      type: 'admin_token',
+      roomId: null,
+      userId: 'user-002',
+      permissions: [],
+      role: 'director',
+      username: 'director'
+    };
+  }
+
+  // Helper to create operator token payload
+  function createOperatorPayload() {
+    return {
+      tokenId: 'test-token-operator',
+      type: 'admin_token',
+      roomId: null,
+      userId: 'user-003',
+      permissions: [],
+      role: 'operator',
+      username: 'operator'
+    };
+  }
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    // Set required environment variables
+    process.env.DATABASE_URL = 'postgres://test:test@localhost:5432/test';
+    process.env.TOKEN_SECRET = 'test-secret';
+    process.env.CSRF_SECRET = 'csrf-secret';
+    process.env.ALLOWED_ORIGINS = 'http://localhost:3000';
+
+    // Create mock database
+    mockDb = {
+      initialize: jest.fn().mockResolvedValue(),
+      shutdown: jest.fn().mockResolvedValue(),
+      query: jest.fn(),
+      queryOne: jest.fn(),
+      getAllUsers: jest.fn(),
+      getUserById: jest.fn(),
+      getUserByUsername: jest.fn(),
+      getRole: jest.fn().mockResolvedValue({ name: 'operator', hierarchy: 50 }),
+      getRolePermissions: jest.fn().mockResolvedValue([]),
+      insertUser: jest.fn(),
+      updateUserRole: jest.fn(),
+      deleteUser: jest.fn()
+    };
+
+    // Create mock Redis
+    mockRedis = {
+      connect: jest.fn().mockResolvedValue(),
+      disconnect: jest.fn().mockResolvedValue(),
+      isReady: jest.fn().mockReturnValue(false),
+      getJson: jest.fn().mockResolvedValue(null),
+      setJson: jest.fn().mockResolvedValue(),
+      del: jest.fn().mockResolvedValue(),
+      invalidate: jest.fn().mockResolvedValue()
+    };
+
+    // Mock RedisClient constructor
+    const RedisClient = require('../src/RedisClient');
+    RedisClient.mockImplementation(() => mockRedis);
+
+    // Create instances
+    rbacManager = new RBACManager(mockDb, mockRedis);
+    userManager = new UserManager(mockDb, rbacManager, mockRedis);
+    tokenManager = new TokenManager(mockDb, mockRedis);
+
+    // Default mock: allow all permission checks
+    rbacManager.hasPermission = jest.fn().mockResolvedValue(true);
+    rbacManager.canAssignRole = jest.fn().mockResolvedValue(true);
+    rbacManager.canAccessHigherRole = jest.fn().mockResolvedValue(true);
+
+    // Create express app
+    app = express();
+    app.use(express.json());
+    app.use(cookieParser());
+
+    // Mock requireAuth wrapper
+    const requireAuth = () => {
+      return (req, res, next) => {
+        const token = req.cookies.jwt;
+        if (!token) {
+          return res.status(401).json({ success: false, error: 'Unauthorized' });
+        }
+
+        try {
+          const decoded = jwt.verify(token, 'test-secret');
+          req.user = decoded;
+          next();
+        } catch (e) {
+          return res.status(401).json({ success: false, error: 'Invalid token' });
+        }
+      };
+    };
+
+    // Attach managers to app.locals
+    app.locals.rbacManager = rbacManager;
+    app.locals.userManager = userManager;
+
+    // PUT /api/admin/users/:id/role route
+    app.put('/api/admin/users/:id/role', requireAuth(), async (req, res) => {
+      const hasPerm = await rbacManager.hasPermission(req.user.role, 'user:assign_role');
+      if (!hasPerm && req.user.role !== 'admin') {
+        return res.status(403).json({ success: false, error: 'Insufficient permissions' });
+      }
+
+      const { id } = req.params;
+      const { role } = req.body;
+
+      if (!role) {
+        return res.status(400).json({
+          success: false,
+          error: 'Role is required'
+        });
+      }
+
+      try {
+        const updatedUser = await userManager.updateUserRole(id, role, req.user.id);
+
+        res.json({
+          success: true,
+          user: updatedUser
+        });
+      } catch (error) {
+        if (error.message === 'User not found') {
+          return res.status(404).json({
+            success: false,
+            error: 'User not found'
+          });
+        }
+        if (error.message === 'Invalid role') {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid role'
+          });
+        }
+        if (error.message.includes('Insufficient permissions')) {
+          return res.status(403).json({
+            success: false,
+            error: error.message
+          });
+        }
+        console.error('[API] Error updating user role:', error);
+        res.status(500).json({
+          success: false,
+          error: 'Failed to update user role'
+        });
+      }
+    });
+  });
+
+  afterEach(async () => {
+    jest.clearAllMocks();
+  });
+
+  test('should return 401 without authentication', async () => {
+    const response = await request(app)
+      .put('/api/admin/users/user-002/role')
+      .send({ role: 'operator' })
+      .expect(401);
+
+    expect(response.body).toEqual({
+      success: false,
+      error: 'Unauthorized'
+    });
+  });
+
+  test('should update user role successfully (returns 200)', async () => {
+    // Mock jwt.verify to return admin payload
+    const restoreJwt = mockJwtVerify(createAdminPayload());
+
+    try {
+      // Mock updateUserRole to return updated user
+      const mockUpdatedUser = {
+        id: 'user-002',
+        role: 'operator',
+        updatedAt: new Date().toISOString()
+      };
+      userManager.updateUserRole = jest.fn().mockResolvedValue(mockUpdatedUser);
+
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-admin',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-001',
+        permissions: ['*']
+      }, Date.now());
+
+      const response = await request(app)
+        .put('/api/admin/users/user-002/role')
+        .set('Cookie', [`jwt=${token}`])
+        .send({ role: 'operator' })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.user).toBeDefined();
+      expect(response.body.user.id).toBe('user-002');
+      expect(response.body.user.role).toBe('operator');
+    } finally {
+      restoreJwt();
+    }
+  });
+
+  test('should return 403 for assigning higher role (director trying to assign admin)', async () => {
+    // Mock jwt.verify to return director payload
+    const restoreJwt = mockJwtVerify(createDirectorPayload());
+
+    try {
+      // Mock canAssignRole to return false (director cannot assign admin)
+      rbacManager.canAssignRole = jest.fn().mockResolvedValue(false);
+
+      // Mock updateUserRole to throw permission error
+      userManager.updateUserRole = jest.fn().mockRejectedValue(new Error('Insufficient permissions to change role'));
+
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-director',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-002',
+        permissions: []
+      }, Date.now());
+
+      const response = await request(app)
+        .put('/api/admin/users/user-003/role')
+        .set('Cookie', [`jwt=${token}`])
+        .send({ role: 'admin' })
+        .expect(403);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toContain('Insufficient permissions');
+    } finally {
+      restoreJwt();
+    }
+  });
+
+  test('should return 404 for non-existent user', async () => {
+    // Mock jwt.verify to return admin payload
+    const restoreJwt = mockJwtVerify(createAdminPayload());
+
+    try {
+      // Mock updateUserRole to throw User not found error
+      userManager.updateUserRole = jest.fn().mockRejectedValue(new Error('User not found'));
+
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-admin',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-001',
+        permissions: ['*']
+      }, Date.now());
+
+      const response = await request(app)
+        .put('/api/admin/users/nonexistent-user/role')
+        .set('Cookie', [`jwt=${token}`])
+        .send({ role: 'operator' })
+        .expect(404);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe('User not found');
+    } finally {
+      restoreJwt();
+    }
+  });
+
+  test('should return 400 for missing role', async () => {
+    // Mock jwt.verify to return admin payload
+    const restoreJwt = mockJwtVerify(createAdminPayload());
+
+    try {
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-admin',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-001',
+        permissions: ['*']
+      }, Date.now());
+
+      const response = await request(app)
+        .put('/api/admin/users/user-002/role')
+        .set('Cookie', [`jwt=${token}`])
+        .send({})
+        .expect(400);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe('Role is required');
+    } finally {
+      restoreJwt();
+    }
+  });
+
+  test('should return 403 for non-admin without user:assign_role permission', async () => {
+    // Mock jwt.verify to return operator payload
+    const restoreJwt = mockJwtVerify(createOperatorPayload());
+
+    try {
+      // Mock hasPermission to return false
+      rbacManager.hasPermission = jest.fn().mockResolvedValue(false);
+
+      const token = tokenManager._generateAccessToken({
+        tokenId: 'test-token-operator',
+        type: 'admin_token',
+        roomId: null,
+        userId: 'user-003',
+        permissions: []
+      }, Date.now());
+
+      const response = await request(app)
+        .put('/api/admin/users/user-002/role')
+        .set('Cookie', [`jwt=${token}`])
+        .send({ role: 'viewer' })
+        .expect(403);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toBe('Insufficient permissions');
+    } finally {
+      restoreJwt();
+    }
+  });
+});
