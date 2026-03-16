@@ -542,6 +542,63 @@ app.put('/api/admin/rooms/:roomId/settings', requireAuth(), async (req, res) => 
   });
 });
 
+// List all users (admin with user:view_all permission)
+app.get('/api/admin/users', requireAuth(), async (req, res) => {
+  const hasPerm = await rbacManager.hasPermission(req.user.role, 'user:view_all');
+  if (!hasPerm && req.user.role !== 'admin') {
+    return res.status(403).json({ success: false, error: 'Insufficient permissions' });
+  }
+
+  const { search, role, status, page = 1, limit = 20 } = req.query;
+  const users = await userManager.getAllUsers();
+
+  // Apply filters
+  let filteredUsers = users;
+  if (search) {
+    const searchLower = search.toLowerCase();
+    filteredUsers = filteredUsers.filter(u =>
+      u.username.toLowerCase().includes(searchLower) ||
+      (u.display_name && u.display_name.toLowerCase().includes(searchLower))
+    );
+  }
+  if (role && role !== 'all') {
+    filteredUsers = filteredUsers.filter(u => u.role === role);
+  }
+  if (status && status !== 'all') {
+    filteredUsers = filteredUsers.filter(u => u.status === status);
+  }
+
+  // Pagination
+  const pageNum = parseInt(page);
+  const limitNum = parseInt(limit);
+  const startIndex = (pageNum - 1) * limitNum;
+  const endIndex = startIndex + limitNum;
+  const paginatedUsers = filteredUsers.slice(startIndex, endIndex);
+
+  // Remove password_hash from response
+  const safeUsers = paginatedUsers.map(u => ({
+    id: u.id,
+    username: u.username,
+    role: u.role,
+    email: u.email,
+    display_name: u.display_name,
+    status: u.status || 'active',
+    created_at: u.created_at,
+    updated_at: u.updated_at
+  }));
+
+  res.json({
+    success: true,
+    users: safeUsers,
+    pagination: {
+      page: pageNum,
+      limit: limitNum,
+      total: filteredUsers.length,
+      totalPages: Math.ceil(filteredUsers.length / limitNum)
+    }
+  });
+});
+
 // =============================================================================
 // Token API Routes
 // =============================================================================
