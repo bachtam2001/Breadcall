@@ -988,7 +988,7 @@ class AdminDashboard {
 
     try {
       // Generate token for room access (8 hour expiry)
-      var response = await fetch('/api/tokens', {
+      var response = await this._apiCall('/api/tokens', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

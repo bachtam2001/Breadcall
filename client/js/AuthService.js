@@ -31,6 +31,7 @@ class AuthService {
    * @returns {Promise<boolean>} - Whether user is authenticated
    */
   async checkAuthStatus() {
+    console.log('[AuthService] Checking auth status...');
     try {
       const response = await fetch('/api/auth/me', {
         method: 'GET',
@@ -38,9 +39,12 @@ class AuthService {
         headers: this._getAuthHeaders()
       });
 
+      console.log('[AuthService] /api/auth/me response status:', response.status);
+
       if (!response.ok) {
         // If 401, try to refresh the token
         if (response.status === 401 && this.accessToken) {
+          console.log('[AuthService] 401 received with token, attempting refresh...');
           const refreshed = await this.refreshAccessToken();
           if (refreshed) {
             return this.checkAuthStatus();
@@ -54,6 +58,7 @@ class AuthService {
       const data = await response.json();
       if (data.success && data.user) {
         this.currentUser = data.user;
+        console.log('[AuthService] Authenticated as:', data.user.username);
         return true;
       }
 
@@ -77,6 +82,7 @@ class AuthService {
    * @returns {Promise<{success: boolean, user?: Object, error?: string}>}
    */
   async login(username, password) {
+    console.log('[AuthService] Login attempt for user:', username);
     try {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
@@ -85,12 +91,15 @@ class AuthService {
         body: JSON.stringify({ username, password })
       });
 
+      console.log('[AuthService] Login response status:', response.status);
       const data = await response.json();
+      console.log('[AuthService] Login response:', data.success ? 'SUCCESS' : 'FAILED', data.error || '');
 
       if (data.success) {
         this.currentUser = data.user;
         this.accessToken = data.accessToken;
         this.tokenExpiry = Date.now() + (data.expiresIn * 1000);
+        console.log('[AuthService] Logged in as:', data.user.username, 'role:', data.user.role);
 
         // Schedule token refresh
         this._scheduleTokenRefresh(data.expiresIn);

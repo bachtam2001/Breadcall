@@ -134,7 +134,7 @@ class BreadCallApp {
 
   async fetchWebRTCConfig() {
     try {
-      const response = await fetch('/api/webrtc-config');
+      const response = await window.authService.fetchWithAuth('/api/webrtc-config');
       if (!response.ok) throw new Error('Config unavailable');
       const data = await response.json();
       if (data.success) {
@@ -251,7 +251,7 @@ class BreadCallApp {
 
   async checkSessionForAutoRejoin(expectedRoomId = null) {
     try {
-      const response = await fetch('/api/session/room', {
+      const response = await window.authService.fetchWithAuth('/api/session/room', {
         credentials: 'include' // Include cookies
       });
       const data = await response.json();

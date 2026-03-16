@@ -44,8 +44,7 @@ class ModeratorDashboard {
     this.renderContent();
 
     try {
-      const response = await fetch('/api/user/rooms', {
-        method: 'GET',
+      const response = await window.authService.fetchWithAuth('/api/user/rooms', {
         credentials: 'include'
       });
 

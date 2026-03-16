@@ -68,8 +68,7 @@ class OperatorDashboard {
   }
 
   async fetchStatus() {
-    const response = await fetch('/api/monitoring/status', {
-      method: 'GET',
+    const response = await window.authService.fetchWithAuth('/api/monitoring/status', {
       credentials: 'include'
     });
 
@@ -95,8 +94,7 @@ class OperatorDashboard {
   }
 
   async fetchRooms() {
-    const response = await fetch('/api/monitoring/rooms', {
-      method: 'GET',
+    const response = await window.authService.fetchWithAuth('/api/monitoring/rooms', {
       credentials: 'include'
     });
 
