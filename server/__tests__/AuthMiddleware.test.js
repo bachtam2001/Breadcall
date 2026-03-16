@@ -76,9 +76,10 @@ describe('AuthMiddleware', () => {
     { role: 'super_admin', permission: '*', object_type: 'room' },
     { role: 'super_admin', permission: '*', object_type: 'stream' },
     { role: 'super_admin', permission: '*', object_type: 'user' },
-    { role: 'participant', permission: 'join', object_type: 'room' },
-    { role: 'participant', permission: 'send_audio', object_type: 'room' },
-    { role: 'participant', permission: 'send_video', object_type: 'room' }
+    // New format permissions for participant
+    { role: 'participant', permission: 'room:view', object_type: 'room' },
+    { role: 'participant', permission: 'stream:publish', object_type: 'stream' },
+    { role: 'participant', permission: 'chat:send', object_type: 'room' }
   ];
 
   // Mock users
@@ -229,7 +230,7 @@ describe('AuthMiddleware', () => {
 
   describe('requirePermission', () => {
     test('returns 401 when user not authenticated', async () => {
-      const middleware = authMiddleware.requirePermission('create', 'room');
+      const middleware = authMiddleware.requirePermission('room:create');
       const req = { headers: {} };
       const res = {
         status: jest.fn().mockReturnThis(),
@@ -243,7 +244,7 @@ describe('AuthMiddleware', () => {
     });
 
     test('returns 403 when user lacks permission', async () => {
-      const middleware = authMiddleware.requirePermission('delete', 'room');
+      const middleware = authMiddleware.requirePermission('room:delete');
       const req = {
         headers: {},
         user: { role: 'participant' }
@@ -263,7 +264,7 @@ describe('AuthMiddleware', () => {
     });
 
     test('calls next when user has permission', async () => {
-      const middleware = authMiddleware.requirePermission('join', 'room');
+      const middleware = authMiddleware.requirePermission('room:view');
       const req = {
         headers: {},
         user: { role: 'participant' }
