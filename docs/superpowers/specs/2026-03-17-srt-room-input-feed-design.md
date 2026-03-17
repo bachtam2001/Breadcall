@@ -124,30 +124,49 @@ srt://{host}:{port}?streamid=publish:room/{roomId}/{srtPublishSecret}
 srt://192.168.1.100:8890?streamid=publish:room/ABCD/a1b2c3d4e5f6...
 ```
 
+### 3.3 Codec Handling
+
+MediaMTX handles codec transcoding automatically:
+
+| Input/Output | Video Codecs | Audio Codecs |
+|--------------|--------------|--------------|
+| SRT Input | H264 (recommended), H265, VP9 | Opus, AAC, MP3 |
+| WebRTC Output | H264 (default), VP8, VP9 | Opus (required) |
+
+**Director Configuration:**
+- SRT sources (OBS, vMix) should output **H264 video** and **AAC/Opus audio** for best compatibility
+- MediaMTX transcodes as needed for WebRTC client compatibility
+- No application-level codec handling required
+
 ---
 
 ## 4. Security Architecture
 
 ### 4.1 Authentication Flow
 
+**Important:** MediaMTX SRT authentication uses a webhook that receives the full request details including the `query` parameter containing the streamid. The path field contains only the base path (without the secret).
+
 ```
 1. OBS/vMix initiates SRT connection
    └─> streamid=publish:room/ABCD/a1b2c3d4e5f6...
 
-2. MediaMTX extracts path and token
-   └─> roomId = "ABCD"
-   └─> secret = "a1b2c3d4e5f6..."
+2. MediaMTX extracts path and query
+   └─> path = "room/ABCD"
+   └─> query = "streamid=publish:room/ABCD/a1b2c3d4e5f6..."
 
 3. MediaMTX calls webhook
    POST https://signaling/api/srt/auth
    {
      "action": "publish",
-     "path": "room/ABCD/a1b2c3d4e5f6...",
+     "path": "room/ABCD",
+     "query": "streamid=publish:room/ABCD/a1b2c3d4e5f6...",
      "ip": "192.168.1.50",
-     "user_agent": "OBS/29.0"
+     "user_agent": "OBS/29.0",
+     "protocol": "srt"
    }
 
 4. Signaling server validates:
+   - Extract secret from query.streamid
    - Room exists
    - Secret matches stored srtPublishSecret
    - Room not deleted
@@ -156,17 +175,104 @@ srt://192.168.1.100:8890?streamid=publish:room/ABCD/a1b2c3d4e5f6...
 5. MediaMTX accepts/rejects connection
 ```
 
+**Path Parsing Implementation:**
+
+```javascript
+function parseSrtAuthRequest(req) {
+  const { path, query } = req.body;
+
+  // Extract roomId from path (e.g., "room/ABCD" -> "ABCD")
+  const pathParts = path.split('/');
+  if (pathParts.length !== 2 || pathParts[0] !== 'room') {
+    return { valid: false, reason: 'invalid_format' };
+  }
+  const roomId = pathParts[1];
+
+  // Extract secret from query string
+  // Format: streamid=publish:room/ROOMID/SECRET
+  const streamIdMatch = query?.match(/^streamid=publish:room\/([A-Z0-9]+)\/([a-f0-9]+)$/);
+  if (!streamIdMatch) {
+    return { valid: false, reason: 'invalid_format' };
+  }
+
+  const parsedRoomId = streamIdMatch[1];
+  const secret = streamIdMatch[2];
+
+  // Verify roomId in path matches roomId in streamid
+  if (parsedRoomId !== roomId) {
+    return { valid: false, reason: 'invalid_format' };
+  }
+
+  return { valid: true, roomId, secret };
+}
+```
+
 ### 4.2 Security Properties
 
 | Property | Implementation |
 |----------|----------------|
-| Token secrecy | 32-char random hex, cryptographically secure |
+| Token secrecy | 32-char random hex, cryptographically secure (256-bit entropy) |
 | Dynamic revocation | Webhook validates on every connection |
 | Audit logging | All SRT auth requests logged on signaling server |
 | Room lifecycle | Secret invalidated when room deleted |
 | No token reuse | Secret unique per room, rotation supported |
+| Rate limiting | 10 requests/minute per IP on auth webhook |
 
-### 4.3 Threat Mitigation
+### 4.3 Rate Limiting
+
+Implement rate limiting on the SRT auth webhook to prevent brute-force attacks:
+
+```javascript
+// server/src/routes/srt.js
+const rateLimit = require('express-rate-limit');
+
+const srtAuthLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 10, // 10 requests per minute per IP
+  message: { allow: false, reason: 'rate_limit_exceeded' },
+  keyGenerator: (req) => req.ip,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.post('/api/srt/auth', srtAuthLimiter, handleSrtAuth);
+```
+
+**Add to reason codes (Section 5.1):**
+- `rate_limit_exceeded` - Too many auth requests from same IP
+
+### 4.4 Audit Logging
+
+All SRT authentication attempts are logged for security auditing:
+
+```javascript
+function logSrtAuthAttempt({ roomId, ip, userAgent, result, reason }) {
+  console.log(JSON.stringify({
+    event: 'srt_auth_attempt',
+    roomId,
+    ip,
+    userAgent,
+    result, // 'allowed' | 'rejected'
+    reason, // e.g., 'invalid_secret', 'room_not_found'
+    timestamp: new Date().toISOString()
+  }));
+}
+```
+
+**Log Retention:** Logs are retained for 30 days (standard application log policy).
+
+### 4.5 Secret Rotation (Manual)
+
+**Current Limitation:** SRT secrets cannot be rotated without recreating the room.
+
+**Mitigation:** If an SRT secret is compromised:
+1. Delete the current room via `/api/admin/rooms/:roomId`
+2. Create a new room (new secret auto-generated)
+3. Distribute new SRT URL to authorized sources
+
+**Future Enhancement:** Add secret rotation endpoint to director dashboard.
+
+### 4.6 Threat Mitigation
 
 | Threat | Mitigation |
 |--------|------------|
@@ -213,18 +319,93 @@ srt://192.168.1.100:8890?streamid=publish:room/ABCD/a1b2c3d4e5f6...
 - `room_not_found` - Room doesn't exist
 - `invalid_secret` - Secret doesn't match stored value
 - `room_deleted` - Room was deleted (TTL expired)
+- `rate_limit_exceeded` - Too many auth requests from same IP
 
 ### 5.2 Room Creation Response
 
-Extend `/api/admin/rooms` POST response:
+Extend `/api/admin/rooms` POST response to include SRT URL:
 
+```javascript
+// In server/src/index.js or routes/admin.js
+const externalSrtHost = process.env.EXTERNAL_SRT_HOST || req.headers.host;
+const srtPublishUrl = `srt://${externalSrtHost}:8890?streamid=publish:room/${room.id}/${room.srtPublishSecret}`;
+
+res.json({
+  success: true,
+  roomId: room.id,
+  room: {
+    id: room.id,
+    maxParticipants: room.maxParticipants,
+    quality: room.quality,
+    codec: room.codec,
+    createdAt: room.createdAt,
+    srtPublishSecret: room.srtPublishSecret // Include for admin reference
+  },
+  srtPublishUrl,
+  createdAt: room.createdAt
+});
+```
+
+**Note:** The `srtPublishSecret` is included in the response for debugging/logging purposes. The full `srtPublishUrl` is the recommended way to use it.
+
+### 5.3 SRT Stream Event Webhook
+
+**Endpoint:** `POST /api/srt/stream-event`
+
+MediaMTX calls this webhook when SRT streams start/stop (via `runOnPublish`/`runOnUnpublish`).
+
+**Request:**
 ```json
 {
-  "success": true,
-  "roomId": "ABCD",
-  "room": { ... },
-  "srtPublishUrl": "srt://host:8890?streamid=publish:room/ABCD/a1b2c3d4..."
+  "room": "room/ABCD",
+  "event": "publish_start" | "publish_end",
+  "timestamp": "2026-03-17T10:00:00Z"
 }
+```
+
+**Response:**
+```json
+{
+  "success": true
+}
+```
+
+**Handler Implementation:**
+
+```javascript
+app.post('/api/srt/stream-event', async (req, res) => {
+  const { room, event } = req.body;
+  const roomId = room.replace('room/', '');
+
+  const roomData = roomManager.getRoom(roomId);
+  if (!roomData) {
+    return res.status(404).json({ success: false, error: 'Room not found' });
+  }
+
+  if (event === 'publish_start') {
+    roomData.srtStreamActive = true;
+    roomData.srtConnectedAt = new Date().toISOString();
+
+    // Notify all directors in this room
+    roomManager.notifyDirectors(roomId, {
+      type: 'srt-feed-updated',
+      active: true,
+      connectedAt: roomData.srtConnectedAt
+    });
+  } else if (event === 'publish_end') {
+    roomData.srtStreamActive = false;
+    roomData.srtConnectedAt = null;
+
+    // Notify all directors in this room
+    roomManager.notifyDirectors(roomId, {
+      type: 'srt-feed-updated',
+      active: false,
+      connectedAt: null
+    });
+  }
+
+  res.json({ success: true });
+});
 ```
 
 ---
@@ -247,13 +428,10 @@ paths:
     source: publisher
     sourceFingerprint: ""
 
-    # SRT settings
-    srtPublishPassphrase: ""  # Not using passphrase, using webhook
-
     # WebRTC settings for participant consumption
     webRTCPCUDSCTimeout: 30s
 
-    # Run commands for stream events (optional logging)
+    # Run commands for stream events (triggers signaling server notifications)
     runOnPublish:
       cmd: curl -X POST http://signaling:3000/api/srt/stream-event \
            -H "Content-Type: application/json" \
@@ -262,6 +440,8 @@ paths:
       cmd: curl -X POST http://signaling:3000/api/srt/stream-event \
            -d '{"room":"%path","event":"publish_end"}'
 ```
+
+**Note:** `srtPublishPassphrase` is not configured because we use webhook-based authentication instead of static passphrases.
 
 ### 6.2 Port Configuration
 
@@ -306,7 +486,7 @@ Add SRT URL display to dashboard:
 
 **Location:** `client/js/app.js` or dedicated RoomView
 
-Add WHEP subscription to room feed:
+**WHEP Subscription:**
 
 ```javascript
 // In room join flow, after receiving room info:
@@ -324,12 +504,48 @@ async subscribeToRoomFeed(roomId) {
 }
 ```
 
+**SRT Feed Status Detection:**
+
+The signaling server tracks SRT stream state and notifies clients:
+
+```javascript
+// Poll for SRT feed status (optional, for placeholder UI)
+async checkRoomFeedStatus(roomId) {
+  const response = await fetch(`/api/rooms/${roomId}/srt-status`);
+  const { active, connectedAt } = await response.json();
+
+  if (active) {
+    this.showFeedActive();
+  } else {
+    this.showWaitingForSource();
+  }
+}
+```
+
+**New API Endpoint:**
+
+```javascript
+app.get('/api/rooms/:roomId/srt-status', async (req, res) => {
+  const room = roomManager.getRoom(req.params.roomId);
+  if (!room) {
+    return res.status(404).json({ success: false, error: 'Room not found' });
+  }
+
+  res.json({
+    active: room.srtStreamActive || false,
+    connectedAt: room.srtConnectedAt || null
+  });
+});
+```
+
 **UI Layout:**
 ```
 ┌─────────────────────────────────────────────┐
 │           ROOM FEED (SRT)                   │
 │           [Primary/Largest Tile]            │
 │           [Fixed Position - Top]            │
+│           [Shows "Waiting for source"       │
+│            when SRT offline]                │
 └─────────────────────────────────────────────┘
 ┌─────────┬─────────┬─────────┬───────────────┐
 │Participant│Participant│Participant│  ...       │
@@ -337,6 +553,11 @@ async subscribeToRoomFeed(roomId) {
 │  (Small)  │  (Small)  │  (Small)  │            │
 └─────────┴─────────┴─────────┴───────────────┘
 ```
+
+**WHEP Path Clarification:**
+- SRT publishes to: `srt://host:8890?streamid=publish:room/ABCD/SECRET`
+- MediaMTX registers path as: `room/ABCD` (secret is auth-only, not part of path)
+- WHEP subscribes to: `/whep/room/ABCD` (no secret needed)
 
 ---
 
@@ -349,6 +570,7 @@ async subscribeToRoomFeed(roomId) {
 | Invalid secret | Director sees "Rejected" toast | Webhook returns `{allow: false, reason: "invalid_secret"}` |
 | Network error | OBS shows connection failed | MediaMTX logs error, webhook not called |
 | Room deleted | SRT source disconnected | Webhook returns `{allow: false, reason: "room_not_found"}` |
+| Rate limit exceeded | OBS connection rejected | Webhook returns `{allow: false, reason: "rate_limit_exceeded"}` |
 
 ### 8.2 Participant View Errors
 
@@ -357,6 +579,15 @@ async subscribeToRoomFeed(roomId) {
 | SRT source offline | "Waiting for source" placeholder | Video tile shows static placeholder |
 | MediaMTX unavailable | Video tile shows error | WHEP connection fails, retry with backoff |
 | WebRTC negotiation fails | Toast error message | Retry WHEP subscription up to 3 times |
+
+### 8.3 Edge Cases
+
+| Scenario | Behavior | Notes |
+|----------|----------|-------|
+| Multiple SRT publishers | Last publisher wins, first is rejected | MediaMTX handles automatically |
+| SRT source disconnect/reconnect | Video freezes, auto-resumes on reconnect | WebRTC connection maintained |
+| Room deletion during active stream | SRT stream terminated immediately | `runOnUnpublish` triggered |
+| Network partition (MediaMTX ↔ signaling) | Auth webhook times out, new connections rejected | Existing streams unaffected |
 
 ---
 
@@ -426,9 +657,10 @@ Add to `.env`:
 
 ```bash
 # SRT Configuration
-SRT_PORT=8890
+SRT_PORT=8890                          # Default: 8890
 SRT_AUTH_WEBHOOK_URL=http://localhost:3000/api/srt/auth
-EXTERNAL_SRT_HOST=your-server-public-ip  # For SRT URL generation
+SRT_AUTH_WEBHOOK_TIMEOUT=5s            # MediaMTX webhook timeout
+EXTERNAL_SRT_HOST=your-server-public-ip # Required for URL generation
 ```
 
 ### 10.2 Docker Compose
@@ -444,8 +676,43 @@ mediamtx:
 
 1. **Database:** No migration needed (in-memory room extension)
 2. **MediaMTX:** Update `mediamtx.yml` with auth webhook config
-3. **Server:** Deploy new `/api/srt/auth` endpoint
+3. **Server:** Deploy new `/api/srt/auth` and `/api/srt/stream-event` endpoints
 4. **Client:** Deploy updated DirectorView.js and room view
+
+### 10.4 Health Monitoring
+
+**Endpoint:** `GET /api/health/mediamtx`
+
+Optional health check to monitor MediaMTX connectivity:
+
+```javascript
+app.get('/api/health/mediamtx', async (req, res) => {
+  try {
+    // Check MediaMTX API health
+    const response = await fetch('http://mediamtx:9997/v2/paths/list', {
+      method: 'GET',
+      timeout: 5000
+    });
+
+    if (!response.ok) {
+      throw new Error('MediaMTX API unreachable');
+    }
+
+    res.json({
+      connected: true,
+      lastCheck: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(503).json({
+      connected: false,
+      error: error.message,
+      lastCheck: new Date().toISOString()
+    });
+  }
+});
+```
+
+**MediaMTX Stats API:** The endpoint `http://mediamtx:9997/v2/paths/list` returns active paths and publisher info.
 
 ---
 
@@ -459,35 +726,52 @@ mediamtx:
 
 ---
 
-## 12. Open Questions
+## 12. Open Questions (Resolved)
 
 1. **Should SRT secret be included in room creation response by default, or require explicit request?**
-   - Current design: Included by default (simpler UX)
+   - **Resolved:** Included by default (simpler UX)
 
 2. **Should there be rate limiting on SRT auth webhook?**
-   - Current design: Yes, implement basic rate limiting (e.g., 10 req/min per IP)
+   - **Resolved:** Yes, 10 requests/minute per IP
 
 3. **Should the room feed tile be draggable/resizable by participants?**
-   - Current design: Fixed position for consistency
+   - **Resolved:** Fixed position for consistency
 
 ---
 
 ## Appendix A: Stream ID Parsing
 
-MediaMTX passes the full path to the webhook. Parse as:
+MediaMTX passes the full request to the webhook via HTTP POST. The streamid is in the `query` field, not the `path` field.
+
+**Correct Parsing:**
 
 ```javascript
-function parseSrtStreamid(streamid) {
-  // Format: publish:room/ROOMID/SECRET
-  const match = streamid.match(/^publish:room\/([A-Z0-9]+)\/([a-f0-9]+)$/);
-  if (!match) {
+function parseSrtAuthRequest(req) {
+  const { path, query } = req.body;
+
+  // Extract roomId from path (e.g., "room/ABCD" -> "ABCD")
+  const pathParts = path.split('/');
+  if (pathParts.length !== 2 || pathParts[0] !== 'room') {
     return { valid: false, reason: 'invalid_format' };
   }
-  return {
-    valid: true,
-    roomId: match[1],
-    secret: match[2]
-  };
+  const roomId = pathParts[1];
+
+  // Extract secret from query string
+  // Format: streamid=publish:room/ROOMID/SECRET
+  const streamIdMatch = query?.match(/^streamid=publish:room\/([A-Z0-9]+)\/([a-f0-9]+)$/);
+  if (!streamIdMatch) {
+    return { valid: false, reason: 'invalid_format' };
+  }
+
+  const parsedRoomId = streamIdMatch[1];
+  const secret = streamIdMatch[2];
+
+  // Verify roomId in path matches roomId in streamid
+  if (parsedRoomId !== roomId) {
+    return { valid: false, reason: 'invalid_format' };
+  }
+
+  return { valid: true, roomId, secret };
 }
 ```
 
@@ -495,17 +779,68 @@ function parseSrtStreamid(streamid) {
 
 ## Appendix B: MediaMTX Webhook Payload
 
-Full webhook request format (from MediaMTX documentation):
+Full webhook request format from MediaMTX for SRT publish requests:
 
 ```json
 {
   "action": "publish",
   "ip": "192.168.1.50",
-  "user_agent": "OBS/29.0",
+  "user_agent": "",
   "id": "abc123",
-  "path": "room/ABCD/a1b2c3d4e5f6...",
+  "path": "room/ABCD",
   "query": "streamid=publish:room/ABCD/a1b2c3d4e5f6...",
   "protocol": "srt",
   "mtls_user": ""
 }
 ```
+
+**Key Fields:**
+- `path`: The base path without the streamid query parameter (`room/ABCD`)
+- `query`: The full query string from the SRT streamid parameter
+- `protocol`: Always `"srt"` for SRT connections
+- `user_agent`: Empty for SRT (used for RTSP/HTTP sources)
+
+---
+
+## Appendix C: API Changes Summary
+
+### RoomManager.createRoom() - Additions
+
+```javascript
+const room = {
+  id: roomId,
+  srtPublishSecret: crypto.randomBytes(16).toString('hex'), // 32-char hex
+  srtStreamActive: false, // Track if SRT source is currently publishing
+  srtConnectedAt: null, // Timestamp of SRT connection
+  // ... existing fields ...
+};
+```
+
+### /api/admin/rooms (POST) - Response Extension
+
+```javascript
+// After room creation
+const externalSrtHost = process.env.EXTERNAL_SRT_HOST || req.headers.host;
+const srtPublishUrl = `srt://${externalSrtHost}:8890?streamid=publish:room/${room.id}/${room.srtPublishSecret}`;
+
+res.json({
+  success: true,
+  roomId: room.id,
+  room: {
+    id: room.id,
+    // ... existing room fields ...
+    srtPublishSecret: room.srtPublishSecret
+  },
+  srtPublishUrl,
+  createdAt: room.createdAt
+});
+```
+
+### New Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/srt/auth` | POST | MediaMTX webhook for SRT authentication |
+| `/api/srt/stream-event` | POST | MediaMTX webhook for stream start/end events |
+| `/api/rooms/:roomId/srt-status` | GET | Client polling for SRT feed status |
+| `/api/health/mediamtx` | GET | Optional: MediaMTX connectivity health check |
