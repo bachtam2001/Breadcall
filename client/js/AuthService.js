@@ -443,6 +443,10 @@ class AuthService {
     if (!this.currentUser?.permissions) {
       return false;
     }
+    // Check for wildcard permission (grants all access)
+    if (this.currentUser.permissions.includes('*')) {
+      return true;
+    }
     return this.currentUser.permissions.includes(permission);
   }
 

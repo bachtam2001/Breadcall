@@ -57,13 +57,15 @@ app.use(cookieParser());
 
 // CSRF Protection using double-submit cookie pattern
 // Note: csrf-csrf v4 API requires session identifier
+// Note: __Host- prefix requires Secure flag, so use regular name for HTTP connections
+const isSecureCookie = process.env.NODE_ENV === 'production' && process.env.HTTPS_ENABLED !== 'false';
 const doubleCsrfUtilities = doubleCsrf({
   getSecret: (req) => process.env.CSRF_SECRET || 'fallback-secret-change-me',
   getSessionIdentifier: (req) => req.session?.id || req.ip, // Use session id or fallback to IP
-  cookieName: '__Host-csrfToken', // Use Host prefix for security
+  cookieName: isSecureCookie ? '__Host-csrfToken' : 'csrfToken', // __Host- requires Secure flag
   cookieOptions: {
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: isSecureCookie,
     path: '/',
     httpOnly: false // Must be false so client can read it for X-CSRF-Token header
   },
@@ -364,7 +366,7 @@ app.post('/api/auth/login', doubleCsrfProtection, async (req, res) => {
     console.log('[API] Generating token pair for user:', username);
     const tokenResult = await tokenManager.generateTokenPair({
       type: tokenType,
-      roomId: authResult.user.role === 'admin' ? 'admin' : undefined,
+      roomId: authResult.user.role === 'admin' ? 'admin' : null,
       userId: authResult.user.id,
       permissions
     });

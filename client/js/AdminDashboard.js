@@ -268,7 +268,7 @@ class AdminDashboard {
         '<section class="admin-section">' +
           '<div class="tab-buttons">' +
             '<button class="tab-btn active" data-tab="rooms">Rooms</button>' +
-            '<button class="tab-btn" data-tab="users">Users</button>' +
+            (this._hasPermission('create', 'user') || this._hasPermission('delete', 'user') ? '<button class="tab-btn" data-tab="users">Users</button>' : '') +
           '</div>' +
         '</section>' +
 
@@ -289,7 +289,7 @@ class AdminDashboard {
         '<div class="tab-content" id="users-tab">' +
           '<div class="admin-section-header">' +
             '<h2 class="admin-section-title">Users</h2>' +
-            '<button class="btn btn-primary" id="create-user-btn">+ Create User</button>' +
+            (this._hasPermission('create', 'user') ? '<button class="btn btn-primary" id="create-user-btn">+ Create User</button>' : '') +
           '</div>' +
           '<div class="user-filters" id="user-filters">' +
             '<input type="text" class="search-input" id="user-search" placeholder="Search users...">' +
