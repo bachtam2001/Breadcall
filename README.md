@@ -35,6 +35,12 @@ docker-compose up -d
 - **Iframe Embed** - MediaMTX embedded player via `/view/{streamName}`
 - **MediaMTX SFU** - Single binary WebRTC media server (port 8887)
 
+### Phase 7: SRT Input Feed
+- **SRT Publishing** - Push external video sources (OBS, vMix) via SRT protocol
+- **Auto WebRTC Delivery** - MediaMTX transcodes SRT to WebRTC automatically
+- **Token-Secured URLs** - 256-bit secrets with webhook authentication
+- **Real-time Status** - Directors see SRT feed status in dashboard
+
 ### Additional Features
 - **Recording** - Local recording with MediaRecorder API
 - **Audio Mixer** - Multi-source mixing with EQ and compressor
@@ -43,6 +49,44 @@ docker-compose up -d
 - **Video Effects** - Filters, LUT, chroma key
 - **Scene Composer** - Multi-stream layout composer
 - **Remote Control API** - HTTP/WS API for automation
+
+## SRT Input Feed
+
+BreadCall supports SRT (Secure Reliable Transport) input feeds for professional video sources.
+
+### Using SRT
+
+1. Create a room via the admin dashboard
+2. Copy the SRT URL from the room creation response (`srtPublishUrl`)
+3. Configure OBS/vMix to push to the SRT URL:
+   - Protocol: SRT
+   - Address: `srt://your-server:8890?streamid=publish:room/ROOMID/SECRET`
+   - Video Codec: H264 (recommended)
+   - Audio Codec: AAC or Opus
+
+### Example OBS Configuration
+
+1. Go to Settings > Stream
+2. Service: Custom
+3. Server: `srt://your-server:8890`
+4. Stream Key: `publish:room/ROOMID/SECRET`
+
+All participants in the room will automatically receive the SRT feed via WebRTC at the `/whep/room/ROOMID` endpoint.
+
+### Security
+
+- Each room has a unique 32-character hex secret (256-bit entropy)
+- MediaMTX validates secrets via webhook to the signaling server
+- Rate limiting: 10 auth requests per minute per IP
+- All auth attempts are logged for audit
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/srt/auth` | POST | MediaMTX webhook for SRT authentication |
+| `/api/srt/stream-event` | POST | Stream start/end notifications |
+| `/api/rooms/:roomId/srt-status` | GET | Get SRT feed status |
 
 ## Architecture
 
