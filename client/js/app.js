@@ -17,6 +17,7 @@ class BreadCallApp {
     this.hasConnected = false; // Track first connection to prevent notification loops
     this.joinTimeoutId = null; // Track join timeout for cleanup
     this.isJoining = false; // Prevent concurrent join attempts
+    this.roomFeedPlayer = null; // WHEP player for room SRT feed
 
     this.init();
   }
@@ -77,6 +78,9 @@ class BreadCallApp {
           this.webrtc.consumeRemoteStream(peer.participantId, peer.streamName, this.roomCodec);
         }
       });
+
+      // Subscribe to room SRT feed via WHEP
+      this.subscribeToRoomFeed(this.roomId);
     });
 
     this.signaling.addEventListener('participant-joined', (e) => {
@@ -441,10 +445,56 @@ class BreadCallApp {
     }
     if (this.webrtc) this.webrtc.cleanup();
     if (this.mediaManager) this.mediaManager.stop();
+    if (this.roomFeedPlayer) {
+      this.roomFeedPlayer.close();
+      this.roomFeedPlayer = null;
+    }
     this.roomId = null;
     this.participantId = null;
     this.hasConnected = false; // Reset for next room join
     this.navigate('/');
+  }
+
+  /**
+   * Subscribe to room SRT feed via WHEP
+   * @param {string} roomId - Room ID
+   */
+  async subscribeToRoomFeed(roomId) {
+    try {
+      if (!this.webrtcConfig) {
+        console.warn('[BreadCallApp] No WebRTC config available for room feed');
+        return;
+      }
+
+      // Create video element for room feed if it doesn't exist
+      let videoEl = document.getElementById('room-feed-video');
+      if (!videoEl) {
+        const container = document.querySelector('.video-grid') || document.body;
+        videoEl = document.createElement('video');
+        videoEl.id = 'room-feed-video';
+        videoEl.autoplay = true;
+        videoEl.playsInline = true;
+        videoEl.className = 'room-feed-video';
+        videoEl.style.width = '100%';
+        videoEl.style.maxHeight = '400px';
+        videoEl.style.backgroundColor = 'var(--color-bg-primary)';
+        container.insertBefore(videoEl, container.firstChild);
+      }
+
+      // Subscribe via WHEP to room path
+      const whepEndpoint = `${this.webrtcConfig.webrtcUrl}/whep/room/${roomId}`;
+      this.roomFeedPlayer = new WHEPClient({
+        endpoint: whepEndpoint,
+        videoElement: videoEl,
+        autoPlay: true,
+        muted: false
+      });
+
+      await this.roomFeedPlayer.play();
+      console.log('[BreadCallApp] Subscribed to room feed via WHEP:', whepEndpoint);
+    } catch (error) {
+      console.error('[BreadCallApp] Failed to subscribe to room feed:', error);
+    }
   }
 
   toggleMute() {
