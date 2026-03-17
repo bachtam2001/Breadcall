@@ -36,14 +36,14 @@ class DirectorDashboard {
   // =============================================================================
 
   /**
-   * Check if user has director access (director, super_admin, or room_admin role)
+   * Check if user has director access (director or admin role)
    * @returns {boolean}
    */
   hasDirectorAccess() {
     const user = window.authService.getCurrentUser();
     if (!user) return false;
 
-    const allowedRoles = ['director', 'super_admin', 'room_admin'];
+    const allowedRoles = ['director', 'admin', 'moderator', 'operator'];
     return allowedRoles.includes(user.role);
   }
 
@@ -281,7 +281,7 @@ class DirectorDashboard {
           '<div class="denied-icon">&#128683;</div>' +
           '<h1>Access Denied</h1>' +
           '<p>You don\'t have permission to access the Director Dashboard.</p>' +
-          '<p class="denied-hint">This area requires director, room_admin, or super_admin privileges.</p>' +
+          '<p class="denied-hint">This area requires director, admin, moderator, or operator privileges.</p>' +
           '<button id="back-btn" class="btn btn-primary">Go to Home</button>' +
         '</div>' +
       '</div>';

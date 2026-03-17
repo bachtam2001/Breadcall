@@ -11,6 +11,7 @@ class AuthService {
     this.tokenExpiry = null;
     this.refreshTimer = null;
     this.authCheckPromise = null;
+    this.csrfToken = null;
 
     // Restore access token from sessionStorage if available
     this._restoreTokenFromStorage();
@@ -85,8 +86,39 @@ class AuthService {
       return this.authCheckPromise;
     }
 
+    // Fetch CSRF token on initialization
+    await this._fetchCsrfToken();
+
     this.authCheckPromise = this.checkAuthStatus();
     return this.authCheckPromise;
+  }
+
+  /**
+   * Fetch CSRF token from server
+   * @private
+   */
+  async _fetchCsrfToken() {
+    try {
+      const response = await fetch('/api/csrf-token', {
+        credentials: 'include'
+      });
+      const data = await response.json();
+      if (data.success && data.csrfToken) {
+        this.csrfToken = data.csrfToken;
+        console.log('[AuthService] CSRF token fetched');
+      }
+    } catch (error) {
+      console.error('[AuthService] Failed to fetch CSRF token:', error);
+    }
+  }
+
+  /**
+   * Get CSRF token from cookie
+   * @private
+   */
+  _getCsrfTokenFromCookie() {
+    const match = document.cookie.match(/csrfToken=([^;]+)/);
+    return match ? match[1] : null;
   }
 
   /**
@@ -150,7 +182,10 @@ class AuthService {
     try {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': this.csrfToken || this._getCsrfTokenFromCookie()
+        },
         credentials: 'include', // Include cookies for refresh token
         body: JSON.stringify({ username, password })
       });
@@ -191,8 +226,11 @@ class AuthService {
     try {
       const response = await fetch('/api/auth/refresh', {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': this.csrfToken || this._getCsrfTokenFromCookie()
+        },
         credentials: 'include', // Include cookies for refresh token
-        headers: { 'Content-Type': 'application/json' }
       });
 
       const data = await response.json();
@@ -247,7 +285,7 @@ class AuthService {
 
   /**
    * Get authentication headers for API requests
-   * @returns {Object} - Headers object with Authorization if token exists
+   * @returns {Object} - Headers object with Authorization and CSRF token if available
    * @private
    */
   _getAuthHeaders() {
@@ -255,22 +293,39 @@ class AuthService {
     if (this.accessToken) {
       headers['Authorization'] = `Bearer ${this.accessToken}`;
     }
+    // Include CSRF token in header (prefer instance token, fallback to cookie)
+    const csrfToken = this.csrfToken || this._getCsrfTokenFromCookie();
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+    }
     return headers;
   }
 
   /**
    * Fetch with automatic authentication and 401 retry
    * Implements the "Silent Refresh" pattern from the JWT + HttpOnly Cookie spec
+   * Automatically includes CSRF token for mutation requests
    * @param {string} url - URL to fetch
    * @param {Object} options - Fetch options
    * @returns {Promise<Response>} - Fetch response
    */
   async fetchWithAuth(url, options = {}) {
+    // Determine if this is a mutation request (needs CSRF token)
+    const isMutation = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(options.method?.toUpperCase());
+
     // Merge auth headers with provided headers
     const headers = {
       ...this._getAuthHeaders(),
       ...options.headers
     };
+
+    // Add CSRF token for mutation requests if not already provided
+    if (isMutation && !headers['X-CSRF-Token']) {
+      const csrfToken = this.csrfToken || this._getCsrfTokenFromCookie();
+      if (csrfToken) {
+        headers['X-CSRF-Token'] = csrfToken;
+      }
+    }
 
     // First attempt
     let response = await fetch(url, {
@@ -323,6 +378,9 @@ class AuthService {
 
       const response = await fetch('/api/auth/logout', {
         method: 'POST',
+        headers: {
+          'X-CSRF-Token': this.csrfToken || this._getCsrfTokenFromCookie()
+        },
         credentials: 'include'
       });
 

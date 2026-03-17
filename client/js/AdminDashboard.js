@@ -63,7 +63,8 @@ class AdminDashboard {
   // =============================================================================
 
   _hasPermission(permission, objectType = 'room') {
-    return window.authService.hasPermission(permission, objectType);
+    // Construct permission string in format 'resource:action' (e.g., 'room:create')
+    return window.authService.hasPermission(`${objectType}:${permission}`, objectType);
   }
 
   /**
@@ -184,11 +185,15 @@ class AdminDashboard {
     this.appElement.innerHTML =
       '<div class="admin-login animate-fade-in">' +
         '<h1 class="admin-login-logo">BreadCall Admin</h1>' +
-        '<p class="admin-login-subtitle">Enter admin password to continue</p>' +
+        '<p class="admin-login-subtitle">Enter admin credentials to continue</p>' +
 
         '<form class="admin-login-form glass-panel" id="admin-login-form">' +
           '<div class="form-group">' +
-            '<label for="admin-password">Admin Password</label>' +
+            '<label for="admin-username">Username</label>' +
+            '<input type="text" id="admin-username" placeholder="Enter username" autocomplete="username" required>' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label for="admin-password">Password</label>' +
             '<input type="password" id="admin-password" placeholder="Enter password" autocomplete="current-password" required>' +
           '</div>' +
           '<div class="form-actions">' +
@@ -204,8 +209,9 @@ class AdminDashboard {
     var form = document.getElementById('admin-login-form');
     form.addEventListener('submit', function(e) {
       e.preventDefault();
+      var username = document.getElementById('admin-username').value;
       var password = document.getElementById('admin-password').value;
-      this.login(password);
+      this.login(username, password);
     }.bind(this));
   }
 
@@ -290,9 +296,12 @@ class AdminDashboard {
             '<select class="filter-select" id="user-role-filter">' +
               '<option value="all">All Roles</option>' +
               '<option value="admin">Admin</option>' +
-              '<option value="room_admin">Room Admin</option>' +
               '<option value="director">Director</option>' +
+              '<option value="co_director">Co-Director</option>' +
               '<option value="moderator">Moderator</option>' +
+              '<option value="publisher">Publisher</option>' +
+              '<option value="participant">Participant</option>' +
+              '<option value="viewer">Viewer</option>' +
               '<option value="operator">Operator</option>' +
             '</select>' +
             '<select class="filter-select" id="user-status-filter">' +
@@ -572,9 +581,12 @@ class AdminDashboard {
                 '<select id="new-user-role" required>' +
                   '<option value="">Select a role</option>' +
                   '<option value="admin">Admin</option>' +
-                  '<option value="room_admin">Room Admin</option>' +
                   '<option value="director">Director</option>' +
+                  '<option value="co_director">Co-Director</option>' +
                   '<option value="moderator">Moderator</option>' +
+                  '<option value="publisher">Publisher</option>' +
+                  '<option value="participant">Participant</option>' +
+                  '<option value="viewer">Viewer</option>' +
                   '<option value="operator">Operator</option>' +
                 '</select>' +
               '</div>' +
@@ -609,9 +621,12 @@ class AdminDashboard {
                 '<select id="edit-user-role" required>' +
                   '<option value="">Select a role</option>' +
                   '<option value="admin">Admin</option>' +
-                  '<option value="room_admin">Room Admin</option>' +
                   '<option value="director">Director</option>' +
+                  '<option value="co_director">Co-Director</option>' +
                   '<option value="moderator">Moderator</option>' +
+                  '<option value="publisher">Publisher</option>' +
+                  '<option value="participant">Participant</option>' +
+                  '<option value="viewer">Viewer</option>' +
                   '<option value="operator">Operator</option>' +
                 '</select>' +
               '</div>' +
@@ -638,9 +653,12 @@ class AdminDashboard {
                 '<select id="bulk-user-role" required>' +
                   '<option value="">Select a role</option>' +
                   '<option value="admin">Admin</option>' +
-                  '<option value="room_admin">Room Admin</option>' +
                   '<option value="director">Director</option>' +
+                  '<option value="co_director">Co-Director</option>' +
                   '<option value="moderator">Moderator</option>' +
+                  '<option value="publisher">Publisher</option>' +
+                  '<option value="participant">Participant</option>' +
+                  '<option value="viewer">Viewer</option>' +
                   '<option value="operator">Operator</option>' +
                 '</select>' +
               '</div>' +

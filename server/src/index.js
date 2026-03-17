@@ -4,6 +4,7 @@ const WebSocket = require('ws');
 const cors = require('cors');
 const path = require('path');
 const cookieParser = require('cookie-parser');
+const { doubleCsrf } = require('csrf-csrf');
 require('dotenv').config();
 
 const RoomManager = require('./RoomManager');
@@ -18,7 +19,7 @@ const OLAManager = require('./OLAManager');
 const bootstrap = require('./bootstrap');
 const createUserRouter = require('./routes/user');
 const createMonitoringRouter = require('./routes/monitoring');
-const createSrtRoutes = require('./routes/srt');
+const createMediaMTXRoutes = require('./routes/mediamtx');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -54,6 +55,24 @@ app.use(cors({
 app.use(express.json());
 app.use(cookieParser());
 
+// CSRF Protection using double-submit cookie pattern
+// Note: csrf-csrf v4 API requires session identifier
+const doubleCsrfUtilities = doubleCsrf({
+  getSecret: (req) => process.env.CSRF_SECRET || 'fallback-secret-change-me',
+  getSessionIdentifier: (req) => req.session?.id || req.ip, // Use session id or fallback to IP
+  cookieName: '__Host-csrfToken', // Use Host prefix for security
+  cookieOptions: {
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    httpOnly: false // Must be false so client can read it for X-CSRF-Token header
+  },
+  size: 64,
+  ignoredMethods: ['GET', 'HEAD', 'OPTIONS']
+});
+
+const { doubleCsrfProtection } = doubleCsrfUtilities;
+
 // Serve static files in development
 app.use(express.static(path.join(__dirname, '../../client')));
 
@@ -73,6 +92,15 @@ const requireAuth = () => {
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// CSRF token generation endpoint - must be protected to generate token
+app.get('/api/csrf-token', doubleCsrfProtection, (req, res) => {
+  const token = req.csrfToken();
+  res.json({
+    success: true,
+    csrfToken: token
+  });
 });
 
 // Create room - RESTRICTED TO ADMIN ONLY (use /api/admin/rooms)
@@ -149,8 +177,57 @@ app.get('/api/webrtc-config', (req, res) => {
   });
 });
 
+/**
+ * POST /api/whip-whep-auth - NGINX auth_request endpoint for WHIP/WHEP
+ * Validates JWT token from Authorization header for WHIP/WHEP requests
+ * Returns 200 if valid, 401/403 if invalid
+ */
+app.post('/api/whip-whep-auth', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const originalUri = req.headers['x-original-uri'];
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.log('[WHIP/WHEP Auth] No valid Authorization header');
+      return res.status(401).json({ error: 'No valid authorization' });
+    }
+
+    const token = authHeader.substring(7);
+
+    // Validate the JWT token
+    const validation = await tokenManager.validateAccessToken(token);
+    if (!validation.valid) {
+      console.log('[WHIP/WHEP Auth] Invalid token:', validation.reason);
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    // Extract room ID from URI (e.g., /room/ABCD/whip -> ABCD)
+    const uriMatch = originalUri?.match(/^\/[^/]+\/(whip|whep)\/room\/([A-Z0-9]+)/);
+    if (!uriMatch) {
+      console.log('[WHIP/WHEP Auth] Invalid URI format:', originalUri);
+      return res.status(400).json({ error: 'Invalid URI format' });
+    }
+
+    const roomId = uriMatch[2];
+    const room = roomManager.getRoom(roomId);
+
+    if (!room) {
+      console.log('[WHIP/WHEP Auth] Room not found:', roomId);
+      return res.status(404).json({ error: 'Room not found' });
+    }
+
+    // Token is valid and room exists - allow the request
+    console.log('[WHIP/WHEP Auth] Auth successful for room:', roomId);
+    return res.status(200).json({ success: true });
+
+  } catch (error) {
+    console.error('[WHIP/WHEP Auth] Error:', error.message);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
 // Refresh access token using refresh token cookie
-app.post('/api/auth/refresh', async (req, res) => {
+app.post('/api/auth/refresh', doubleCsrfProtection, async (req, res) => {
   try {
     const refreshTokenId = req.cookies?.refreshToken;
 
@@ -248,7 +325,7 @@ app.get('/api/session/room', async (req, res) => {
 // =============================================================================
 
 // User login - authenticate user and return JWT token
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', doubleCsrfProtection, async (req, res) => {
   try {
     console.log('[API] Login attempt received:', req.body?.username);
 
@@ -276,6 +353,10 @@ app.post('/api/auth/login', async (req, res) => {
 
     console.log('[API] User authenticated successfully:', username, 'role:', authResult.user.role);
 
+    // Get permissions from user's role via RBAC
+    const rolePermissions = await rbacManager.getAllPermissions(authResult.user.role);
+    const permissions = rolePermissions.map(p => p.permission);
+
     // Determine token type based on user role
     const tokenType = authResult.user.role === 'admin' ? 'admin_token' : 'room_access';
 
@@ -283,11 +364,9 @@ app.post('/api/auth/login', async (req, res) => {
     console.log('[API] Generating token pair for user:', username);
     const tokenResult = await tokenManager.generateTokenPair({
       type: tokenType,
-      roomId: 'admin',
+      roomId: authResult.user.role === 'admin' ? 'admin' : undefined,
       userId: authResult.user.id,
-      permissions: authResult.user.role === 'admin'
-        ? ['*', 'room:create', 'room:delete', 'room:update', 'user:assign_role']
-        : ['room:view', 'stream:publish', 'chat:send']
+      permissions
     });
 
     console.log('[API] Token generated successfully for user:', username);
@@ -309,7 +388,8 @@ app.post('/api/auth/login', async (req, res) => {
         id: authResult.user.id,
         username: authResult.user.username,
         role: authResult.user.role,
-        displayName: authResult.user.displayName
+        displayName: authResult.user.displayName,
+        permissions
       },
       accessToken: tokenResult.accessToken,
       expiresIn: tokenResult.expiresIn
@@ -353,7 +433,7 @@ app.get('/api/auth/me', requireAuth(), (req, res) => {
 // =============================================================================
 
 // Admin login - authenticate user and return JWT token
-app.post('/api/admin/login', async (req, res) => {
+app.post('/api/admin/login', doubleCsrfProtection, async (req, res) => {
   try {
     const { username, password } = req.body;
 
@@ -400,7 +480,8 @@ app.post('/api/admin/login', async (req, res) => {
         id: authResult.user.id,
         username: authResult.user.username,
         role: authResult.user.role,
-        displayName: authResult.user.displayName
+        displayName: authResult.user.displayName,
+        permissions
       },
       tokenId: tokenResult.tokenId,
       expiresIn: tokenResult.expiresIn
@@ -468,7 +549,7 @@ app.get('/api/admin/rooms/:roomId/participants', requireAuth(), (req, res) => {
 });
 
 // Create room (admin with room:create permission)
-app.post('/api/admin/rooms', requireAuth(), async (req, res) => {
+app.post('/api/admin/rooms', doubleCsrfProtection, requireAuth(), async (req, res) => {
   const hasPerm = await rbacManager.hasPermission(req.user.role, 'room:create');
   if (!hasPerm) {
     return res.status(403).json({ success: false, error: 'Insufficient permissions' });
@@ -506,7 +587,7 @@ app.post('/api/admin/rooms', requireAuth(), async (req, res) => {
 });
 
 // Delete room (admin with room:delete permission)
-app.delete('/api/admin/rooms/:roomId', requireAuth(), async (req, res) => {
+app.delete('/api/admin/rooms/:roomId', doubleCsrfProtection, requireAuth(), async (req, res) => {
   const hasPerm = await rbacManager.hasPermission(req.user.role, 'room:delete');
   if (!hasPerm) {
     return res.status(403).json({ success: false, error: 'Insufficient permissions' });
@@ -519,7 +600,7 @@ app.delete('/api/admin/rooms/:roomId', requireAuth(), async (req, res) => {
 });
 
 // Update room settings (admin with room:update permission)
-app.put('/api/admin/rooms/:roomId/settings', requireAuth(), async (req, res) => {
+app.put('/api/admin/rooms/:roomId/settings', doubleCsrfProtection, requireAuth(), async (req, res) => {
   const hasPerm = await rbacManager.hasPermission(req.user.role, 'room:update');
   if (!hasPerm) {
     return res.status(403).json({ success: false, error: 'Insufficient permissions' });
@@ -625,7 +706,7 @@ app.get('/api/admin/users', requireAuth(), async (req, res) => {
 });
 
 // Create new user (admin only)
-app.post('/api/admin/users', requireAuth(), async (req, res) => {
+app.post('/api/admin/users', doubleCsrfProtection, requireAuth(), async (req, res) => {
   const hasPerm = await rbacManager.hasPermission(req.user.role, 'user:create');
   if (!hasPerm && req.user.role !== 'admin') {
     return res.status(403).json({ success: false, error: 'Insufficient permissions' });
@@ -696,7 +777,7 @@ app.post('/api/admin/users', requireAuth(), async (req, res) => {
 });
 
 // Update user role (admin only)
-app.put('/api/admin/users/:id/role', requireAuth(), async (req, res) => {
+app.put('/api/admin/users/:id/role', doubleCsrfProtection, requireAuth(), async (req, res) => {
   const hasPerm = await rbacManager.hasPermission(req.user.role, 'user:assign_role');
   if (!hasPerm && req.user.role !== 'admin') {
     return res.status(403).json({ success: false, error: 'Insufficient permissions' });
@@ -747,7 +828,7 @@ app.put('/api/admin/users/:id/role', requireAuth(), async (req, res) => {
 });
 
 // Delete user (admin only)
-app.delete('/api/admin/users/:id', requireAuth(), async (req, res) => {
+app.delete('/api/admin/users/:id', doubleCsrfProtection, requireAuth(), async (req, res) => {
   const hasPerm = await rbacManager.hasPermission(req.user.role, 'user:delete');
   if (!hasPerm && req.user.role !== 'admin') {
     return res.status(403).json({ success: false, error: 'Insufficient permissions' });
@@ -798,7 +879,7 @@ app.delete('/api/admin/users/:id', requireAuth(), async (req, res) => {
 /**
  * Generate token
  */
-app.post('/api/tokens', requireAuth(), async (req, res) => {
+app.post('/api/tokens', doubleCsrfProtection, requireAuth(), async (req, res) => {
   try {
     const { type, roomId, options = {} } = req.body;
 
@@ -867,7 +948,7 @@ app.post('/api/tokens', requireAuth(), async (req, res) => {
 /**
  * Validate token
  */
-app.post('/api/tokens/validate', async (req, res) => {
+app.post('/api/tokens/validate', doubleCsrfProtection, async (req, res) => {
   try {
     const { token, action } = req.body;
 
@@ -899,7 +980,7 @@ app.post('/api/tokens/validate', async (req, res) => {
 /**
  * Revoke token
  */
-app.delete('/api/tokens/:tokenId', requireAuth(), (req, res) => {
+app.delete('/api/tokens/:tokenId', doubleCsrfProtection, requireAuth(), (req, res) => {
   const { tokenId } = req.params;
 
   if (roomManager.revokeToken(tokenId)) {
@@ -956,6 +1037,15 @@ function getTokenErrorMessage(reason) {
 
 // Global error handler - must be after all routes
 app.use((err, req, res, next) => {
+  // Handle CSRF errors specifically
+  if (err.name === 'ForbiddenError' || (err.message && err.message.toLowerCase().includes('csrf'))) {
+    console.warn('[Server] CSRF validation failed:', err.message);
+    return res.status(403).json({
+      success: false,
+      error: 'CSRF validation failed'
+    });
+  }
+
   console.error('[Server] Unhandled error:', err.message, err.stack);
   if (!res.headersSent) {
     res.status(500).json({
@@ -1118,8 +1208,8 @@ async function startServer() {
     app.use('/api/monitoring', requireAuth(), createMonitoringRouter(roomManager));
 
     // Mount SRT routes (MediaMTX webhooks - no auth required, validated by secret)
-    app.use('/api/srt', createSrtRoutes(roomManager));
-    console.log('[Server] SRT routes mounted at /api/srt');
+    app.use('/api/mediamtx', createMediaMTXRoutes(roomManager));
+    console.log('[Server] MediaMTX routes mounted at /api/mediamtx');
 
     // Run bootstrap to create super admin if needed
     await bootstrap();

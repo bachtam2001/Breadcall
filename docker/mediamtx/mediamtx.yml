@@ -1,5 +1,9 @@
 # MediaMTX configuration for BreadCall
-# WHIP/WHEP WebRTC streaming
+# WHIP/WHEP WebRTC streaming - v1.16.3 compatible
+
+# Global settings
+logLevel: info
+logDestinations: [stdout]
 
 # Disable unused protocols
 rtsp: false
@@ -16,30 +20,18 @@ webrtcLocalUDPAddress: :9000
 webrtcLocalTCPAddress: :9000
 webrtcIPsFromInterfaces: true
 
-# SRT authentication webhook
-auth:
-  http:
-    address: http://signaling:3000/api/srt/auth
-    timeout: 5s
+# Default path settings
+pathDefaults:
+  source: publisher
 
 # Paths - allow any stream name (dynamic room/participant streams)
 paths:
-  # Room paths with SRT auth and runOnPublish hooks
-  room/*:
+  # Regex path for room streams (matches room/*)
+  ~^room/.*$:
     source: publisher
+    runOnReady: 'curl -X POST http://signaling:3000/api/mediamtx/stream-event -H "Content-Type: application/json" -d "{\"path\":\"%path\",\"event\":\"publish_start\"}"'
+    runOnNotReady: 'curl -X POST http://signaling:3000/api/mediamtx/stream-event -d "{\"path\":\"%path\",\"event\":\"publish_end\"}"'
 
-    # WebRTC settings for participant consumption
-    webRTCPCUDSCTimeout: 30s
-
-    # Run commands for stream events (triggers signaling server notifications)
-    runOnPublish:
-      cmd: curl -X POST http://signaling:3000/api/srt/stream-event \
-           -H "Content-Type: application/json" \
-           -d '{"room":"%path","event":"publish_start"}'
-    runOnUnpublish:
-      cmd: curl -X POST http://signaling:3000/api/srt/stream-event \
-           -d '{"room":"%path","event":"publish_end"}'
-
-  # Wildcard path for other streams (e.g., ROOM_123_participantId)
-  '~^.*$':
+  # Wildcard path for other streams (e.g., direct participant streams)
+  ~^.*$:
     source: publisher

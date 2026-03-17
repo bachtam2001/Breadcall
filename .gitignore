@@ -32,3 +32,4 @@ coverage/
 # Claude
 .claude/
 .playwright-mcp/
+.gitnexus

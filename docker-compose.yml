@@ -90,12 +90,6 @@ services:
     networks:
       - breadcall-network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 8887 || exit 1"]
-      interval: 5s
-      timeout: 3s
-      retries: 3
-      start_period: 10s
 
 volumes:
   breadcall-public:

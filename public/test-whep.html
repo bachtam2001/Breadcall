@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WHEP Stream Test - Room 9FYP</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #fff;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #00d4ff;
+        }
+        .info {
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .info p {
+            margin: 5px 0;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        #video-container {
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            aspect-ratio: 16/9;
+            max-width: 1280px;
+        }
+        video {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            background: #00d4ff;
+            color: #000;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #00a8cc;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        #status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .status-connecting {
+            background: #ffa500;
+            color: #000;
+        }
+        .status-connected {
+            background: #00ff88;
+            color: #000;
+        }
+        .status-error {
+            background: #ff4444;
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WHEP Stream Test</h1>
+
+        <div class="info">
+            <p><strong>Room ID:</strong> 9FYP</p>
+            <p><strong>WHEP Endpoint:</strong> <span id="whep-url"></span></p>
+            <p><strong>Stream Source:</strong> SRT test stream (H264 1280x720 30fps)</p>
+        </div>
+
+        <div id="video-container">
+            <video id="video" autoplay playsinline muted></video>
+        </div>
+
+        <div class="controls">
+            <button id="btn-connect" onclick="connect()">Connect</button>
+            <button id="btn-disconnect" onclick="disconnect()" disabled>Disconnect</button>
+        </div>
+
+        <div id="status">Ready to connect</div>
+    </div>
+
+    <script>
+        const roomId = '9FYP';
+        const secret = 'e613cf64d7b5f952c4ebad86425aaec1';
+        const whepUrl = `http://${window.location.hostname}:8887/room/${roomId}/${secret}/whep`;
+
+        document.getElementById('whep-url').textContent = whepUrl;
+
+        let pc = null;
+        let ws = null;
+
+        function updateStatus(message, type) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = type ? `status-${type}` : '';
+        }
+
+        async function connect() {
+            updateStatus('Connecting...', 'connecting');
+            document.getElementById('btn-connect').disabled = true;
+
+            try {
+                // Create peer connection
+                pc = new RTCPeerConnection({
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                });
+
+                // Add transceivers for recvonly
+                pc.addTransceiver('video', { direction: 'recvonly' });
+                pc.addTransceiver('audio', { direction: 'recvonly' });
+
+                // Handle incoming tracks
+                pc.ontrack = (event) => {
+                    console.log('Received track:', event.track.kind);
+                    const video = document.getElementById('video');
+                    if (video.srcObject !== event.streams[0]) {
+                        video.srcObject = event.streams[0];
+                        updateStatus('Connected - Receiving stream', 'connected');
+                    }
+                };
+
+                // Connection state changes
+                pc.onconnectionstatechange = () => {
+                    console.log('Connection state:', pc.connectionState);
+                    if (pc.connectionState === 'connected') {
+                        updateStatus('Connected - Receiving stream', 'connected');
+                    } else if (pc.connectionState === 'failed') {
+                        updateStatus('Connection failed', 'error');
+                    }
+                };
+
+                // Create offer
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+
+                // Wait for ICE gathering to complete
+                await new Promise((resolve) => {
+                    if (pc.iceGatheringState === 'complete') {
+                        resolve();
+                    } else {
+                        pc.onicegatheringstatechange = () => {
+                            if (pc.iceGatheringState === 'complete') {
+                                resolve();
+                            }
+                        };
+                        // Timeout after 2 seconds
+                        setTimeout(resolve, 2000);
+                    }
+                });
+
+                // Send offer to WHEP endpoint
+                const response = await fetch(whepUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/sdp'
+                    },
+                    body: pc.localDescription.sdp
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || `HTTP ${response.status}`);
+                }
+
+                // Get answer SDP
+                const answerSdp = await response.text();
+
+                // Set remote description
+                await pc.setRemoteDescription({
+                    type: 'answer',
+                    sdp: answerSdp
+                });
+
+                document.getElementById('btn-disconnect').disabled = false;
+
+            } catch (error) {
+                console.error('Connection error:', error);
+                updateStatus(`Error: ${error.message}`, 'error');
+                document.getElementById('btn-connect').disabled = false;
+                if (pc) {
+                    pc.close();
+                    pc = null;
+                }
+            }
+        }
+
+        function disconnect() {
+            if (pc) {
+                pc.close();
+                pc = null;
+            }
+            document.getElementById('video').srcObject = null;
+            document.getElementById('btn-connect').disabled = false;
+            document.getElementById('btn-disconnect').disabled = true;
+            updateStatus('Disconnected');
+        }
+
+        // Auto-connect on load
+        window.addEventListener('load', () => {
+            setTimeout(connect, 500);
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (pc) {
+                pc.close();
+            }
+        });
+    </script>
+</body>
+</html>

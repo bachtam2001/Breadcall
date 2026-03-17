@@ -11,10 +11,10 @@ describe('SRT Auth Webhook', () => {
     app = express();
     app.use(express.json());
 
-    // Import SRT routes with mocked roomManager
-    const createSrtRoutes = require('../src/routes/srt');
-    const router = createSrtRoutes(roomManager);
-    app.use('/api/srt', router);
+    // Import MediaMTX routes with mocked roomManager
+    const createMediaMTXRoutes = require('../src/routes/mediamtx');
+    const router = createMediaMTXRoutes(roomManager);
+    app.use('/api/mediamtx', router);
   });
 
   test('validates correct SRT secret', async () => {
@@ -29,7 +29,7 @@ describe('SRT Auth Webhook', () => {
     };
 
     const response = await request(app)
-      .post('/api/srt/auth')
+      .post('/api/mediamtx/auth')
       .send(payload);
 
     expect(response.status).toBe(200);
@@ -48,7 +48,7 @@ describe('SRT Auth Webhook', () => {
     };
 
     const response = await request(app)
-      .post('/api/srt/auth')
+      .post('/api/mediamtx/auth')
       .send(payload);
 
     expect(response.status).toBe(200);
@@ -66,7 +66,7 @@ describe('SRT Auth Webhook', () => {
     };
 
     const response = await request(app)
-      .post('/api/srt/auth')
+      .post('/api/mediamtx/auth')
       .send(payload);
 
     expect(response.status).toBe(200);
@@ -84,7 +84,7 @@ describe('SRT Auth Webhook', () => {
     };
 
     const response = await request(app)
-      .post('/api/srt/auth')
+      .post('/api/mediamtx/auth')
       .send(payload);
 
     expect(response.status).toBe(200);
@@ -94,12 +94,12 @@ describe('SRT Auth Webhook', () => {
   test('handles stream start event', async () => {
     const room = roomManager.createRoom();
     const payload = {
-      room: `room/${room.id}`,
+      path: `room/${room.id}`,
       event: 'publish_start'
     };
 
     const response = await request(app)
-      .post('/api/srt/stream-event')
+      .post('/api/mediamtx/stream-event')
       .send(payload);
 
     expect(response.status).toBe(200);
@@ -115,12 +115,12 @@ describe('SRT Auth Webhook', () => {
     room.srtConnectedAt = new Date().toISOString();
 
     const payload = {
-      room: `room/${room.id}`,
+      path: `room/${room.id}`,
       event: 'publish_end'
     };
 
     const response = await request(app)
-      .post('/api/srt/stream-event')
+      .post('/api/mediamtx/stream-event')
       .send(payload);
 
     expect(response.status).toBe(200);
