@@ -214,4 +214,28 @@ describe('RoomManager', () => {
       expect(rooms).toHaveLength(3);
     });
   });
+
+  describe('SRT Room Fields', () => {
+    test('createRoom generates SRT publish secret', () => {
+      const room = roomManager.createRoom();
+
+      expect(room.srtPublishSecret).toBeDefined();
+      expect(room.srtPublishSecret).toHaveLength(32);
+      expect(room.srtPublishSecret).toMatch(/^[a-f0-9]+$/);
+    });
+
+    test('createRoom initializes SRT stream state', () => {
+      const room = roomManager.createRoom();
+
+      expect(room.srtStreamActive).toBe(false);
+      expect(room.srtConnectedAt).toBeNull();
+    });
+
+    test('each room gets unique SRT secret', () => {
+      const room1 = roomManager.createRoom();
+      const room2 = roomManager.createRoom();
+
+      expect(room1.srtPublishSecret).not.toBe(room2.srtPublishSecret);
+    });
+  });
 });

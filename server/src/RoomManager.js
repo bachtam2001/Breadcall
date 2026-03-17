@@ -50,7 +50,11 @@ class RoomManager {
       participants: new Map(), // participantId -> participant
       createdAt: new Date().toISOString(),
       emptySince: null,
-      ttlTimer: null
+      ttlTimer: null,
+      // SRT fields
+      srtPublishSecret: crypto.randomBytes(16).toString('hex'), // 32-char hex
+      srtStreamActive: false,
+      srtConnectedAt: null
     };
 
     this.rooms.set(roomId, room);
