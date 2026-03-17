@@ -410,7 +410,7 @@ app.post('/api/auth/logout', async (req, res) => {
   const tokenId = req.cookies?.refreshToken;
   if (tokenId) {
     // Revoke the refresh token in database/redis
-    await tokenManager.revokeRefreshToken(tokenId);
+    await tokenManager.revokeToken(tokenId);
     res.clearCookie('refreshToken');
   }
   res.json({ success: true });
