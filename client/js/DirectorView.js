@@ -13,6 +13,8 @@ class DirectorView {
 
   async init() {
     this.parseUrl();
+    this.srtPublishUrl = null;
+    this.srtStreamActive = false;
 
     // Check for token in URL
     const urlParams = new URLSearchParams(window.location.search);
@@ -25,6 +27,7 @@ class DirectorView {
       this.render();
       this.connect();
       this.startStatsPolling();
+      this.fetchSrtUrl();
     }
   }
 
@@ -72,6 +75,56 @@ class DirectorView {
     this.roomId = parts[2]?.toUpperCase();
   }
 
+  /**
+   * Fetch SRT URL from room info
+   */
+  async fetchSrtUrl() {
+    try {
+      // SRT URL is generated on room creation and returned via API
+      // For now, we'll construct it from the room ID
+      // The full URL would be available from the admin API response
+      const host = window.location.hostname;
+      // Note: The secret would need to be fetched from an admin endpoint
+      // For now, show placeholder
+      this.srtPublishUrl = `srt://${host}:8890?streamid=publish:room/${this.roomId}/<secret>`;
+      this.updateSrtDisplay();
+    } catch (error) {
+      console.error('[Director] Failed to fetch SRT URL:', error);
+    }
+  }
+
+  /**
+   * Update SRT status display
+   */
+  updateSrtDisplay() {
+    const statusEl = document.getElementById('srt-status');
+    if (statusEl) {
+      statusEl.textContent = this.srtStreamActive ? '● Active' : '○ Waiting for source';
+      statusEl.style.color = this.srtStreamActive ? 'var(--color-success)' : 'var(--color-text-tertiary)';
+    }
+
+    const urlEl = document.getElementById('srt-url');
+    if (urlEl && this.srtPublishUrl) {
+      urlEl.textContent = this.srtPublishUrl;
+    }
+  }
+
+  /**
+   * Copy SRT URL to clipboard
+   */
+  async copySrtUrl() {
+    if (!this.srtPublishUrl) {
+      this.showToast('SRT URL not available', 'error');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(this.srtPublishUrl);
+      this.showToast('SRT URL copied!', 'success');
+    } catch (error) {
+      this.showToast('Failed to copy', 'error');
+    }
+  }
+
   render() {
     document.body.innerHTML = `
       <div class="director-dashboard animate-fade-in">
@@ -87,10 +140,36 @@ class DirectorView {
             </div>
           </div>
         </div>
+
+        <!-- SRT Input Section -->
+        <div class="srt-input-section glass-panel" style="padding: 16px; margin-bottom: 24px;">
+          <h2 style="margin: 0 0 12px 0; font-size: 18px;">SRT Input Feed</h2>
+          <p style="color: var(--color-text-secondary); margin-bottom: 12px;">
+            Use this URL to push external video sources (OBS, vMix) to the room
+          </p>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <code id="srt-url" style="flex: 1; background: var(--color-bg-secondary); padding: 8px; border-radius: 4px; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              ${this.srtPublishUrl || 'SRT URL not available - check admin dashboard'}
+            </code>
+            <button class="btn btn-secondary" id="copy-srt-btn">
+              Copy
+            </button>
+          </div>
+          <div id="srt-status" style="margin-top: 8px; font-size: 12px; color: var(--color-text-tertiary);">
+            ○ Waiting for source
+          </div>
+        </div>
+
         <div id="director-grid" class="director-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 16px;"></div>
         <div id="toast-container" class="toast-container"></div>
       </div>
     `;
+
+    // Attach event listener to copy button
+    const copyBtn = document.getElementById('copy-srt-btn');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', () => this.copySrtUrl());
+    }
   }
 
   connect() {
@@ -139,6 +218,19 @@ class DirectorView {
       console.log('[Director] Participant left:', participantId);
       this.removeParticipant(participantId);
       this.updateParticipantCount();
+    });
+
+    this.signaling.addEventListener('srt-feed-updated', (e) => {
+      const { active, connectedAt } = e.detail;
+      console.log('[Director] SRT feed updated:', { active, connectedAt });
+      this.srtStreamActive = active;
+      this.updateSrtDisplay();
+
+      if (active) {
+        this.showToast('SRT feed is now active', 'success');
+      } else {
+        this.showToast('SRT feed has stopped', 'info');
+      }
     });
 
     this.signaling.addEventListener('disconnected', () => {
