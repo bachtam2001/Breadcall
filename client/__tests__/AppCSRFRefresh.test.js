@@ -103,7 +103,10 @@ describe('BreadCallApp - AuthService Integration', () => {
       hasRole: jest.fn().mockReturnValue(false),
       refreshAccessToken: jest.fn().mockResolvedValue(false),
       checkRoomSession: jest.fn().mockResolvedValue({ hasRoom: false }),
-      getWebSocketUrl: jest.fn().mockReturnValue('ws://localhost:3000/ws')
+      getWebSocketUrl: jest.fn().mockReturnValue('ws://localhost:3000/ws'),
+      fetchWithAuth: jest.fn().mockImplementation((url, options) => {
+        return mockFetch(url, options);
+      })
     };
 
     // Load the app module after mocks are set up
@@ -150,7 +153,8 @@ describe('BreadCallApp - AuthService Integration', () => {
       // Wait for async init
       await Promise.resolve();
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/webrtc-config');
+      expect(mockFetch).toHaveBeenCalled();
+      expect(mockFetch.mock.calls[0][0]).toBe('/api/webrtc-config');
     });
   });
 
