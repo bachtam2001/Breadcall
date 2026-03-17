@@ -71,7 +71,7 @@ const doubleCsrfUtilities = doubleCsrf({
   ignoredMethods: ['GET', 'HEAD', 'OPTIONS']
 });
 
-const { doubleCsrfProtection } = doubleCsrfUtilities;
+const { doubleCsrfProtection, generateCsrfToken } = doubleCsrfUtilities;
 
 // Serve static files in development
 app.use(express.static(path.join(__dirname, '../../client')));
@@ -94,9 +94,9 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// CSRF token generation endpoint - must be protected to generate token
-app.get('/api/csrf-token', doubleCsrfProtection, (req, res) => {
-  const token = req.csrfToken();
+// CSRF token generation endpoint - unprotected so clients can get initial token
+app.get('/api/csrf-token', (req, res) => {
+  const token = generateCsrfToken(req, res);
   res.json({
     success: true,
     csrfToken: token
