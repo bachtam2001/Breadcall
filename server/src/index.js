@@ -18,6 +18,7 @@ const OLAManager = require('./OLAManager');
 const bootstrap = require('./bootstrap');
 const createUserRouter = require('./routes/user');
 const createMonitoringRouter = require('./routes/monitoring');
+const createSrtRoutes = require('./routes/srt');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -98,6 +99,19 @@ app.get('/api/rooms/:roomId', (req, res) => {
       codec: room.codec,
       createdAt: room.createdAt
     }
+  });
+});
+
+// Get SRT feed status
+app.get('/api/rooms/:roomId/srt-status', (req, res) => {
+  const room = roomManager.getRoom(req.params.roomId);
+  if (!room) {
+    return res.status(404).json({ success: false, error: 'Room not found' });
+  }
+
+  res.json({
+    active: room.srtStreamActive || false,
+    connectedAt: room.srtConnectedAt || null
   });
 });
 
@@ -467,6 +481,11 @@ app.post('/api/admin/rooms', requireAuth(), async (req, res) => {
       quality,
       codec
     });
+
+    // Generate SRT publish URL
+    const externalSrtHost = process.env.EXTERNAL_SRT_HOST || req.headers.host;
+    const srtPublishUrl = `srt://${externalSrtHost}:8890?streamid=publish:room/${room.id}/${room.srtPublishSecret}`;
+
     res.json({
       success: true,
       roomId: room.id,
@@ -475,8 +494,10 @@ app.post('/api/admin/rooms', requireAuth(), async (req, res) => {
         maxParticipants: room.maxParticipants,
         quality: room.quality,
         codec: room.codec,
-        createdAt: room.createdAt
+        createdAt: room.createdAt,
+        srtPublishSecret: room.srtPublishSecret
       },
+      srtPublishUrl,
       createdAt: room.createdAt
     });
   } catch (error) {
@@ -1095,6 +1116,10 @@ async function startServer() {
 
     // Mount monitoring routes with auth middleware
     app.use('/api/monitoring', requireAuth(), createMonitoringRouter(roomManager));
+
+    // Mount SRT routes (MediaMTX webhooks - no auth required, validated by secret)
+    app.use('/api/srt', createSrtRoutes(roomManager));
+    console.log('[Server] SRT routes mounted at /api/srt');
 
     // Run bootstrap to create super admin if needed
     await bootstrap();
