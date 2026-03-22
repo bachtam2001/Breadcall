@@ -145,7 +145,7 @@ describe('User and Monitoring Routes', () => {
           id: 'assignment_2',
           user_id: 'test-user-id',
           room_id: room2.id,
-          assignment_role: 'moderator',
+          assignment_role: 'director',
           granted_by: 'admin',
           granted_at: new Date().toISOString(),
           expires_at: null
@@ -168,7 +168,7 @@ describe('User and Monitoring Routes', () => {
       // Check room2 has correct assignment role
       const room2Data = response.body.rooms.find(r => r.roomId === room2.id);
       expect(room2Data).toBeDefined();
-      expect(room2Data.assignmentRole).toBe('moderator');
+      expect(room2Data.assignmentRole).toBe('director');
     });
 
     test('should handle database errors gracefully', async () => {
