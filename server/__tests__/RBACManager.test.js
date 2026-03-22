@@ -49,30 +49,18 @@ describe('RBACManager', () => {
   // Seed data for role hierarchy and permissions
   const mockRoles = [
     { name: 'admin', hierarchy: 100, description: 'Full system access' },
-    { name: 'room_admin', hierarchy: 80, description: 'Create and manage own rooms' },
-    { name: 'moderator', hierarchy: 60, description: 'Manage participants in assigned rooms' },
-    { name: 'director', hierarchy: 50, description: 'View and control streams' },
+    { name: 'director', hierarchy: 70, description: 'Can create rooms, full control over assigned rooms' },
     { name: 'operator', hierarchy: 40, description: 'Read-only monitoring' },
     { name: 'participant', hierarchy: 20, description: 'Join rooms, send audio/video' },
     { name: 'viewer', hierarchy: 10, description: 'View single stream' }
   ];
 
   const mockRolePermissions = [
-    // Super admin wildcards
+    // Admin wildcards
     { role: 'admin', permission: '*', object_type: 'system' },
     { role: 'admin', permission: '*', object_type: 'room' },
     { role: 'admin', permission: '*', object_type: 'stream' },
     { role: 'admin', permission: '*', object_type: 'user' },
-    // Room admin permissions (new format)
-    { role: 'room_admin', permission: 'room:create', object_type: 'system' },
-    { role: 'room_admin', permission: 'room:delete', object_type: 'system' },
-    { role: 'room_admin', permission: 'room:update', object_type: 'system' },
-    { role: 'room_admin', permission: 'room:assign_director', object_type: 'system' },
-    { role: 'room_admin', permission: 'user:manage_roles', object_type: 'system' },
-    // Moderator permissions (new format)
-    { role: 'moderator', permission: 'user:mute', object_type: 'user' },
-    { role: 'moderator', permission: 'user:kick', object_type: 'user' },
-    { role: 'moderator', permission: 'chat:moderate', object_type: 'room' },
     // Director permissions (new format)
     { role: 'director', permission: 'stream:view_all', object_type: 'stream' },
     { role: 'director', permission: 'stream:switch_scene', object_type: 'stream' },
@@ -117,16 +105,10 @@ describe('RBACManager', () => {
       expect(hierarchy).toBe(100);
     });
 
-    test('returns hierarchy level for room_admin', async () => {
+    test('returns hierarchy level for director', async () => {
       await rbacManager.initialize();
-      const hierarchy = await rbacManager.getRoleHierarchy('room_admin');
-      expect(hierarchy).toBe(80);
-    });
-
-    test('returns hierarchy level for moderator', async () => {
-      await rbacManager.initialize();
-      const hierarchy = await rbacManager.getRoleHierarchy('moderator');
-      expect(hierarchy).toBe(60);
+      const hierarchy = await rbacManager.getRoleHierarchy('director');
+      expect(hierarchy).toBe(70);
     });
 
     test('returns hierarchy level for viewer', async () => {
@@ -162,33 +144,9 @@ describe('RBACManager', () => {
       expect(hasPerm).toBe(true);
     });
 
-    test('room_admin can create rooms', async () => {
+    test('director can view all streams', async () => {
       await rbacManager.initialize();
-      const hasPerm = await rbacManager.hasPermission('room_admin', 'room:create');
-      expect(hasPerm).toBe(true);
-    });
-
-    test('room_admin can delete rooms', async () => {
-      await rbacManager.initialize();
-      const hasPerm = await rbacManager.hasPermission('room_admin', 'room:delete');
-      expect(hasPerm).toBe(true);
-    });
-
-    test('room_admin cannot mute (moderator permission)', async () => {
-      await rbacManager.initialize();
-      const hasPerm = await rbacManager.hasPermission('room_admin', 'user:mute');
-      expect(hasPerm).toBe(false);
-    });
-
-    test('moderator can mute participants', async () => {
-      await rbacManager.initialize();
-      const hasPerm = await rbacManager.hasPermission('moderator', 'user:mute');
-      expect(hasPerm).toBe(true);
-    });
-
-    test('moderator can kick participants', async () => {
-      await rbacManager.initialize();
-      const hasPerm = await rbacManager.hasPermission('moderator', 'user:kick');
+      const hasPerm = await rbacManager.hasPermission('director', 'stream:view_all');
       expect(hasPerm).toBe(true);
     });
 
@@ -235,39 +193,33 @@ describe('RBACManager', () => {
       expect(canAccess).toBe(true);
     });
 
-    test('admin can access room_admin', async () => {
+    test('director cannot access admin', async () => {
       await rbacManager.initialize();
-      const canAccess = await rbacManager.canAccessHigherRole('admin', 'room_admin');
-      expect(canAccess).toBe(true);
-    });
-
-    test('room_admin cannot access admin', async () => {
-      await rbacManager.initialize();
-      const canAccess = await rbacManager.canAccessHigherRole('room_admin', 'admin');
+      const canAccess = await rbacManager.canAccessHigherRole('director', 'admin');
       expect(canAccess).toBe(false);
     });
 
-    test('room_admin can access moderator', async () => {
+    test('director can access participant', async () => {
       await rbacManager.initialize();
-      const canAccess = await rbacManager.canAccessHigherRole('room_admin', 'moderator');
+      const canAccess = await rbacManager.canAccessHigherRole('director', 'participant');
       expect(canAccess).toBe(true);
     });
 
-    test('moderator can access viewer', async () => {
+    test('participant can access viewer', async () => {
       await rbacManager.initialize();
-      const canAccess = await rbacManager.canAccessHigherRole('moderator', 'viewer');
+      const canAccess = await rbacManager.canAccessHigherRole('participant', 'viewer');
       expect(canAccess).toBe(true);
     });
 
-    test('moderator cannot access room_admin', async () => {
+    test('participant cannot access director', async () => {
       await rbacManager.initialize();
-      const canAccess = await rbacManager.canAccessHigherRole('moderator', 'room_admin');
+      const canAccess = await rbacManager.canAccessHigherRole('participant', 'director');
       expect(canAccess).toBe(false);
     });
 
     test('same role cannot access itself', async () => {
       await rbacManager.initialize();
-      const canAccess = await rbacManager.canAccessHigherRole('moderator', 'moderator');
+      const canAccess = await rbacManager.canAccessHigherRole('director', 'director');
       expect(canAccess).toBe(false);
     });
 
@@ -286,33 +238,33 @@ describe('RBACManager', () => {
       rbacManager = new RBACManager(db);
     });
 
-    test('returns all permissions for room_admin', async () => {
+    test('returns all permissions for director', async () => {
       await rbacManager.initialize();
-      const perms = await rbacManager.getAllPermissions('room_admin');
+      const perms = await rbacManager.getAllPermissions('director');
       expect(perms).toContainEqual(expect.objectContaining({
-        permission: 'room:create',
-        object_type: 'system'
+        permission: 'stream:view_all',
+        object_type: 'stream'
       }));
       expect(perms).toContainEqual(expect.objectContaining({
-        permission: 'room:delete',
-        object_type: 'system'
+        permission: 'stream:switch_scene',
+        object_type: 'stream'
       }));
-      expect(perms).toContainEqual(expect.objectContaining({
-        permission: 'room:assign_director',
-        object_type: 'system'
-      }));
-    });
-
-    test('returns all permissions for moderator', async () => {
-      await rbacManager.initialize();
-      const perms = await rbacManager.getAllPermissions('moderator');
       expect(perms).toContainEqual(expect.objectContaining({
         permission: 'user:mute',
         object_type: 'user'
       }));
+    });
+
+    test('returns all permissions for participant', async () => {
+      await rbacManager.initialize();
+      const perms = await rbacManager.getAllPermissions('participant');
       expect(perms).toContainEqual(expect.objectContaining({
-        permission: 'user:kick',
-        object_type: 'user'
+        permission: 'room:view',
+        object_type: 'room'
+      }));
+      expect(perms).toContainEqual(expect.objectContaining({
+        permission: 'stream:publish',
+        object_type: 'stream'
       }));
     });
 
@@ -332,7 +284,7 @@ describe('RBACManager', () => {
     test('returns all roles with hierarchy', async () => {
       await rbacManager.initialize();
       const roles = rbacManager.getAllRoles();
-      expect(roles.length).toBe(7);
+      expect(roles.length).toBe(5);
       expect(roles).toContainEqual(expect.objectContaining({
         name: 'admin',
         hierarchy: 100
