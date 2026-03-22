@@ -294,8 +294,6 @@ class AdminDashboard {
               '<option value="all">All Roles</option>' +
               '<option value="admin">Admin</option>' +
               '<option value="director">Director</option>' +
-              '<option value="co_director">Co-Director</option>' +
-              '<option value="publisher">Publisher</option>' +
               '<option value="participant">Participant</option>' +
               '<option value="viewer">Viewer</option>' +
               '<option value="operator">Operator</option>' +
@@ -578,8 +576,6 @@ class AdminDashboard {
                   '<option value="">Select a role</option>' +
                   '<option value="admin">Admin</option>' +
                   '<option value="director">Director</option>' +
-                  '<option value="co_director">Co-Director</option>' +
-                  '<option value="publisher">Publisher</option>' +
                   '<option value="participant">Participant</option>' +
                   '<option value="viewer">Viewer</option>' +
                   '<option value="operator">Operator</option>' +
@@ -617,8 +613,6 @@ class AdminDashboard {
                   '<option value="">Select a role</option>' +
                   '<option value="admin">Admin</option>' +
                   '<option value="director">Director</option>' +
-                  '<option value="co_director">Co-Director</option>' +
-                  '<option value="publisher">Publisher</option>' +
                   '<option value="participant">Participant</option>' +
                   '<option value="viewer">Viewer</option>' +
                   '<option value="operator">Operator</option>' +
@@ -648,8 +642,6 @@ class AdminDashboard {
                   '<option value="">Select a role</option>' +
                   '<option value="admin">Admin</option>' +
                   '<option value="director">Director</option>' +
-                  '<option value="co_director">Co-Director</option>' +
-                  '<option value="publisher">Publisher</option>' +
                   '<option value="participant">Participant</option>' +
                   '<option value="viewer">Viewer</option>' +
                   '<option value="operator">Operator</option>' +
