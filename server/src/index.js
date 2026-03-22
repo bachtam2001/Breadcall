@@ -16,10 +16,12 @@ const UserManager = require('./UserManager');
 const TokenManager = require('./TokenManager');
 const RedisClient = require('./RedisClient');
 const OLAManager = require('./OLAManager');
+const MediaMTXClient = require('./MediaMTXClient');
 const bootstrap = require('./bootstrap');
 const createUserRouter = require('./routes/user');
 const createMonitoringRouter = require('./routes/monitoring');
 const createMediaMTXRoutes = require('./routes/mediamtx');
+const createSRTRouter = require('./routes/srt');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1109,6 +1111,9 @@ const wss = new WebSocket.Server({ server, path: '/ws' });
 const roomManager = new RoomManager();
 const signalingHandler = new SignalingHandler(roomManager, wss);
 
+// Initialize MediaMTX HTTP API client
+const mediaMTXClient = new MediaMTXClient(process.env.MEDIAMTX_API_URL || 'http://mediamtx:9997');
+
 // Initialize database, RBAC, and user management
 const db = new Database();
 let authMiddleware = null;
@@ -1230,6 +1235,10 @@ async function startServer() {
     // Mount SRT routes (MediaMTX webhooks - no auth required, validated by secret)
     app.use('/api/mediamtx', createMediaMTXRoutes(roomManager));
     console.log('[Server] MediaMTX routes mounted at /api/mediamtx');
+
+    // Mount SRT configuration routes
+    app.use('/api', createSRTRouter(mediaMTXClient, roomManager));
+    console.log('[Server] SRT configuration routes mounted at /api');
 
     // Run bootstrap to create super admin if needed
     await bootstrap();
