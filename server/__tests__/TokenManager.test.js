@@ -275,6 +275,40 @@ describe('TokenManager', () => {
       const result = await tokenManager.validateRefreshToken(tokenId);
       expect(result.valid).toBe(false);
     });
+
+    test('returns stored permissions in validation payload', async () => {
+      mockPool.query.mockResolvedValue({ rows: [] });
+      const testPermissions = ['room:create', 'room:delete', 'user:assign_role'];
+
+      const { tokenId } = await tokenManager.generateTokenPair({
+        type: 'admin_token',
+        roomId: 'admin',
+        userId: 'user-123',
+        permissions: testPermissions
+      });
+
+      const result = await tokenManager.validateRefreshToken(tokenId);
+      expect(result.valid).toBe(true);
+      expect(result.payload.permissions).toEqual(testPermissions);
+    });
+
+    test('falls back to defaults for legacy tokens without permissions', async () => {
+      // Simulate legacy token without permissions field
+      const legacyTokenData = {
+        tokenId: 'legacy-token',
+        type: 'admin_token',
+        roomId: 'admin',
+        userId: 'user-123',
+        expiresAt: Date.now() + 86400000,
+        revoked: false,
+        rotatedTo: null
+      };
+      mockRedisStore.set('refresh:legacy-token', legacyTokenData);
+
+      const result = await tokenManager.validateRefreshToken('legacy-token');
+      expect(result.valid).toBe(true);
+      expect(result.payload.permissions).toEqual(['create', 'delete', 'update', 'assign']);
+    });
   });
 
   describe('rotateRefreshToken', () => {

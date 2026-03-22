@@ -152,13 +152,19 @@ class TokenManager {
       return { valid: false, reason: 'expired' };
     }
 
+    // Log warning if falling back to defaults (legacy token without permissions)
+    if (!tokenData.permissions) {
+      console.warn(`[TokenManager] Legacy token refreshed for userId=${tokenData.userId}. Permissions downgraded to defaults. User should re-login.`);
+    }
+
     return {
       valid: true,
       payload: {
         tokenId: tokenData.tokenId,
         type: tokenData.type,
         roomId: tokenData.roomId,
-        userId: tokenData.userId
+        userId: tokenData.userId,
+        permissions: tokenData.permissions || this._getDefaultPermissions(tokenData.type)
       }
     };
   }
