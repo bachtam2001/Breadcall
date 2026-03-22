@@ -29,9 +29,7 @@ describe('OLAManager', () => {
   // Mock data for roles and permissions
   const mockRoles = [
     { name: 'admin', hierarchy: 100, description: 'Full system access' },
-    { name: 'room_admin', hierarchy: 80, description: 'Create and manage own rooms' },
-    { name: 'moderator', hierarchy: 60, description: 'Manage participants in assigned rooms' },
-    { name: 'director', hierarchy: 50, description: 'View and control streams' },
+    { name: 'director', hierarchy: 70, description: 'Can create rooms, full control over assigned rooms' },
     { name: 'operator', hierarchy: 40, description: 'Read-only monitoring' },
     { name: 'participant', hierarchy: 20, description: 'Join rooms, send audio/video' },
     { name: 'viewer', hierarchy: 10, description: 'View single stream' }
@@ -42,14 +40,6 @@ describe('OLAManager', () => {
     { role: 'admin', permission: '*', object_type: 'room' },
     { role: 'admin', permission: '*', object_type: 'stream' },
     { role: 'admin', permission: '*', object_type: 'user' },
-    { role: 'room_admin', permission: 'create', object_type: 'room' },
-    { role: 'room_admin', permission: 'delete', object_type: 'room' },
-    { role: 'room_admin', permission: 'update', object_type: 'room' },
-    { role: 'room_admin', permission: 'assign', object_type: 'room' },
-    { role: 'room_admin', permission: 'promote', object_type: 'user' },
-    { role: 'moderator', permission: 'mute', object_type: 'room' },
-    { role: 'moderator', permission: 'kick', object_type: 'room' },
-    { role: 'moderator', permission: 'update_settings', object_type: 'room' },
     { role: 'director', permission: 'view_all', object_type: 'room' },
     { role: 'director', permission: 'switch_scenes', object_type: 'room' },
     { role: 'director', permission: 'generate_srt', object_type: 'room' },
@@ -67,9 +57,8 @@ describe('OLAManager', () => {
   // Mock users
   const mockUsers = [
     { id: 'user-super-admin', username: 'superadmin', password_hash: 'hash', role: 'admin', display_name: 'Super Admin', email: null },
-    { id: 'user-moderator', username: 'moderator', password_hash: 'hash', role: 'moderator', display_name: 'Moderator', email: null },
-    { id: 'user-viewer', username: 'viewer', password_hash: 'hash', role: 'viewer', display_name: 'Viewer', email: null },
-    { id: 'user-room-admin', username: 'roomadmin', password_hash: 'hash', role: 'room_admin', display_name: 'Room Admin', email: null }
+    { id: 'user-director', username: 'director', password_hash: 'hash', role: 'director', display_name: 'Director', email: null },
+    { id: 'user-viewer', username: 'viewer', password_hash: 'hash', role: 'viewer', display_name: 'Viewer', email: null }
   ];
 
   // In-memory storage for OLAManager data (room_assignments and stream_access tables)
@@ -234,16 +223,16 @@ describe('OLAManager', () => {
   describe('assignRoom', () => {
     test('assigns user to room with specified role', async () => {
       const assignment = await olaManager.assignRoom(
-        'user-moderator',
+        'user-director',
         'ROOM123',
-        'moderator',
+        'director',
         'user-super-admin'
       );
 
       expect(assignment).toBeTruthy();
-      expect(assignment.user_id).toBe('user-moderator');
+      expect(assignment.user_id).toBe('user-director');
       expect(assignment.room_id).toBe('ROOM123');
-      expect(assignment.assignment_role).toBe('moderator');
+      expect(assignment.assignment_role).toBe('director');
       expect(assignment.granted_by).toBe('user-super-admin');
     });
 
@@ -253,7 +242,7 @@ describe('OLAManager', () => {
         'user-viewer',
         'ROOM456',
         'participant',
-        'user-room-admin',
+        'user-director',
         expiresAt
       );
 
@@ -289,10 +278,10 @@ describe('OLAManager', () => {
   describe('getUserRoomAssignments', () => {
     test('returns all room assignments for user', async () => {
       // Create multiple assignments for a user
-      await olaManager.assignRoom('user-moderator', 'ROOM-A', 'moderator', 'user-super-admin');
-      await olaManager.assignRoom('user-moderator', 'ROOM-B', 'moderator', 'user-super-admin');
+      await olaManager.assignRoom('user-director', 'ROOM-A', 'director', 'user-super-admin');
+      await olaManager.assignRoom('user-director', 'ROOM-B', 'director', 'user-super-admin');
 
-      const assignments = await olaManager.getUserRoomAssignments('user-moderator');
+      const assignments = await olaManager.getUserRoomAssignments('user-director');
       const roomAMatch = assignments.some(a => a.room_id === 'ROOM-A');
       const roomBMatch = assignments.some(a => a.room_id === 'ROOM-B');
 
@@ -321,14 +310,14 @@ describe('OLAManager', () => {
     test('returns all assignments for a room', async () => {
       const roomId = 'ROOM-MULTI-USERS';
 
-      await olaManager.assignRoom('user-moderator', roomId, 'moderator', 'user-super-admin');
+      await olaManager.assignRoom('user-director', roomId, 'director', 'user-super-admin');
       await olaManager.assignRoom('user-viewer', roomId, 'participant', 'user-super-admin');
 
       const assignments = await olaManager.getRoomAssignments(roomId);
       expect(assignments.length).toBe(2);
 
       const userIds = assignments.map(a => a.user_id);
-      expect(userIds).toContain('user-moderator');
+      expect(userIds).toContain('user-director');
       expect(userIds).toContain('user-viewer');
     });
   });
@@ -341,9 +330,9 @@ describe('OLAManager', () => {
 
     test('assigned user can access room', async () => {
       const roomId = 'ROOM-ACCESS-TEST';
-      await olaManager.assignRoom('user-moderator', roomId, 'moderator', 'user-super-admin');
+      await olaManager.assignRoom('user-director', roomId, 'director', 'user-super-admin');
 
-      const canAccess = await olaManager.canAccessRoom('user-moderator', roomId);
+      const canAccess = await olaManager.canAccessRoom('user-director', roomId);
       expect(canAccess).toBe(true);
     });
 
@@ -358,13 +347,13 @@ describe('OLAManager', () => {
     test('grants user access to stream', async () => {
       const streamId = 'ROOM789_user1';
       const access = await olaManager.grantStreamAccess(
-        'user-moderator',
+        'user-director',
         streamId,
         'user-super-admin'
       );
 
       expect(access).toBeTruthy();
-      expect(access.user_id).toBe('user-moderator');
+      expect(access.user_id).toBe('user-director');
       expect(access.stream_id).toBe(streamId);
       expect(access.granted_by).toBe('user-super-admin');
     });
@@ -386,9 +375,9 @@ describe('OLAManager', () => {
   describe('canAccessStream', () => {
     test('user with stream access can access stream', async () => {
       const streamId = 'STREAM-ACCESS-TEST';
-      await olaManager.grantStreamAccess('user-moderator', streamId, 'user-super-admin');
+      await olaManager.grantStreamAccess('user-director', streamId, 'user-super-admin');
 
-      const canAccess = await olaManager.canAccessStream('user-moderator', streamId);
+      const canAccess = await olaManager.canAccessStream('user-director', streamId);
       expect(canAccess).toBe(true);
     });
 
@@ -415,17 +404,17 @@ describe('OLAManager', () => {
   describe('revokeStreamAccess', () => {
     test('revokes stream access', async () => {
       const streamId = 'STREAM-REVOKE';
-      await olaManager.grantStreamAccess('user-moderator', streamId, 'user-super-admin');
+      await olaManager.grantStreamAccess('user-director', streamId, 'user-super-admin');
 
       // Verify access exists
-      let canAccess = await olaManager.canAccessStream('user-moderator', streamId);
+      let canAccess = await olaManager.canAccessStream('user-director', streamId);
       expect(canAccess).toBe(true);
 
       // Revoke access
-      await olaManager.revokeStreamAccess('user-moderator', streamId);
+      await olaManager.revokeStreamAccess('user-director', streamId);
 
       // Verify access is revoked
-      canAccess = await olaManager.canAccessStream('user-moderator', streamId);
+      canAccess = await olaManager.canAccessStream('user-director', streamId);
       expect(canAccess).toBe(false);
     });
   });
