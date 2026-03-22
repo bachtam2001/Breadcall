@@ -12,7 +12,7 @@ class OLAManager {
    * Assign a user to a room with a specific role
    * @param {string} userId - The user ID
    * @param {string} roomId - The room ID
-   * @param {string} assignmentRole - The role to assign (e.g., 'moderator', 'participant')
+   * @param {string} assignmentRole - The role to assign (e.g., 'director', 'participant')
    * @param {string} grantedBy - The user ID of who is granting this assignment
    * @param {string} [expiresAt] - Optional expiration date (ISO string)
    * @returns {Promise<Object>} - The created assignment object
