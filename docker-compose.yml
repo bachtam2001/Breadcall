@@ -45,6 +45,9 @@ services:
       - REDIS_URL=redis://redis:6379
       - DB_POOL_MIN=2
       - DB_POOL_MAX=10
+      # Set EXTERNAL_URL to your public domain for correct token URL generation
+      # Example: - EXTERNAL_URL=https://your-domain.com
+      - EXTERNAL_URL=${EXTERNAL_URL:-}
     volumes:
       - ./logs:/app/logs
       - breadcall-public:/app/public
