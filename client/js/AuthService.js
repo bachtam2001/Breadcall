@@ -426,7 +426,7 @@ class AuthService {
 
   /**
    * Check if user has specific role
-   * @param {string} role - Role to check (e.g., 'super_admin', 'room_admin')
+   * @param {string} role - Role to check (e.g., 'admin', 'director')
    * @returns {boolean}
    */
   hasRole(role) {
