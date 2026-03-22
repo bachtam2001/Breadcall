@@ -168,7 +168,7 @@ class DirectorView {
         pushUrlSection.style.display = 'block';
       } else {
         pullUrlSection.style.display = 'none';
-        pushUrlSection.style.display = 'none';
+        pushUrlSection.style.display = 'block'; // Default to push section
       }
     }
 
@@ -177,9 +177,11 @@ class DirectorView {
     const disconnectBtn = document.getElementById('srt-disconnect-btn');
     if (connectBtn && disconnectBtn) {
       if (this.srtMode === 'pull') {
+        // Connect button shows when NOT active, Disconnect shows when active
         connectBtn.style.display = this.srtStreamActive ? 'none' : 'inline-block';
         disconnectBtn.style.display = this.srtStreamActive ? 'inline-block' : 'none';
       } else {
+        // Hide both buttons for push mode
         connectBtn.style.display = 'none';
         disconnectBtn.style.display = 'none';
       }
@@ -204,7 +206,18 @@ class DirectorView {
   }
 
   /**
-   * Set SRT mode (push or pull)
+   * Handle SRT mode radio button change
+   */
+  onSrtModeChange(mode) {
+    // Just update UI to show the selected mode section
+    // User must click Connect button to actually configure pull mode
+    this.srtMode = mode;
+    this.updateSrtModeUI();
+    this.showToast(`Selected ${mode} mode - ${mode === 'pull' ? 'enter URL and click Connect' : 'configure your external source'}`, 'info');
+  }
+
+  /**
+   * Set SRT mode (push or pull) - called when actually submitting configuration
    */
   async setSrtMode(mode, pullUrl = null) {
     try {
@@ -305,11 +318,11 @@ class DirectorView {
           <!-- Mode Selection -->
           <div style="margin-bottom: 16px;">
             <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 16px; cursor: pointer;">
-              <input type="radio" name="srt-mode" id="srt-mode-push" value="push" ${this.srtMode === 'push' ? 'checked' : ''} onchange="window.directorView.setSrtMode('push')">
+              <input type="radio" name="srt-mode" id="srt-mode-push" value="push" ${this.srtMode === 'push' ? 'checked' : ''} onchange="window.directorView.onSrtModeChange('push')">
               <span>Push Mode (External source pushes to this room)</span>
             </label>
             <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
-              <input type="radio" name="srt-mode" id="srt-mode-pull" value="pull" ${this.srtMode === 'pull' ? 'checked' : ''} onchange="window.directorView.setSrtMode('pull', document.getElementById('srt-pull-url-input').value.trim())">
+              <input type="radio" name="srt-mode" id="srt-mode-pull" value="pull" ${this.srtMode === 'pull' ? 'checked' : ''} onchange="window.directorView.onSrtModeChange('pull')">
               <span>Pull Mode (This room pulls from external SRT source)</span>
             </label>
           </div>
