@@ -280,16 +280,23 @@ describe('TokenManager', () => {
       mockPool.query.mockResolvedValue({ rows: [] });
       const testPermissions = ['room:create', 'room:delete', 'user:assign_role'];
 
-      const { tokenId } = await tokenManager.generateTokenPair({
+      // Generate token and verify it's stored
+      const result = await tokenManager.generateTokenPair({
         type: 'admin_token',
         roomId: 'admin',
         userId: 'user-123',
         permissions: testPermissions
       });
 
-      const result = await tokenManager.validateRefreshToken(tokenId);
-      expect(result.valid).toBe(true);
-      expect(result.payload.permissions).toEqual(testPermissions);
+      // Verify token was stored in Redis with permissions
+      const storedToken = mockRedisStore.get(`refresh:${result.tokenId}`);
+      expect(storedToken).toBeDefined();
+      expect(storedToken.permissions).toEqual(testPermissions);
+
+      // Now validate the refresh token
+      const validation = await tokenManager.validateRefreshToken(result.tokenId);
+      expect(validation.valid).toBe(true);
+      expect(validation.payload.permissions).toEqual(testPermissions);
     });
 
     test('falls back to defaults for legacy tokens without permissions', async () => {
@@ -304,6 +311,11 @@ describe('TokenManager', () => {
         rotatedTo: null
       };
       mockRedisStore.set('refresh:legacy-token', legacyTokenData);
+
+      // Verify token was stored
+      const stored = mockRedisStore.get('refresh:legacy-token');
+      expect(stored).toBeDefined();
+      expect(stored.permissions).toBeUndefined();
 
       const result = await tokenManager.validateRefreshToken('legacy-token');
       expect(result.valid).toBe(true);
