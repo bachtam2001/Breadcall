@@ -189,7 +189,7 @@ class TokenManager {
       type: oldTokenData.type,
       roomId: oldTokenData.roomId,
       userId: oldTokenData.userId,
-      permissions: this._getDefaultPermissions(oldTokenData.type)
+      permissions: oldTokenData.permissions || this._getDefaultPermissions(oldTokenData.type)
     });
 
     // Mark old token as rotated in Redis

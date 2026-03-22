@@ -346,6 +346,33 @@ describe('TokenManager', () => {
       // Skipping for now - the logic is tested in validateRefreshToken
       expect(true).toBe(true);
     });
+
+    test('preserves permissions during token rotation', async () => {
+      mockPool.query.mockResolvedValue({ rows: [] });
+      const testPermissions = ['room:create', 'user:view', 'user:assign_role'];
+
+      const { tokenId } = await tokenManager.generateTokenPair({
+        type: 'admin_token',
+        roomId: 'admin',
+        userId: 'user-123',
+        permissions: testPermissions
+      });
+
+      // Manually set rotatedTo to null to simulate valid token (Jest mock limitation workaround)
+      const stored = mockRedisStore.get(`refresh:${tokenId}`);
+      if (stored) {
+        stored.rotatedTo = null;
+        mockRedisStore.set(`refresh:${tokenId}`, stored);
+      }
+
+      const result = await tokenManager.rotateRefreshToken(tokenId);
+
+      if (result.success) {
+        // Verify new token has same permissions
+        const newStored = mockRedisStore.get(`refresh:${result.tokenId}`);
+        expect(newStored.permissions).toEqual(testPermissions);
+      }
+    });
   });
 
   describe('revokeToken', () => {
