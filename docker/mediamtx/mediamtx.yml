@@ -5,6 +5,10 @@
 logLevel: info
 logDestinations: [stdout]
 
+# HTTP API for path management (required for SRT pull mode)
+api: yes
+apiAddress: :9997
+
 # Disable unused protocols
 rtsp: false
 rtmp: false
