@@ -257,7 +257,7 @@ app.post('/api/auth/refresh', doubleCsrfProtection, async (req, res) => {
       type: validation.payload.type,
       roomId: validation.payload.roomId,
       userId: validation.payload.userId,
-      permissions: tokenManager._getDefaultPermissions(validation.payload.type)
+      permissions: validation.payload.permissions  // Use stored permissions from refresh token
     });
 
     // Set new refresh token in HttpOnly cookie (rotate refresh token)
@@ -925,7 +925,7 @@ app.post('/api/tokens', doubleCsrfProtection, requireAuth(), async (req, res) =>
 
     // Build shareable URL (using new HTML5 History API format, not hash)
     const baseUrl = getTokenBaseUrl(type, roomId);
-    const fullUrl = `${req.protocol}://${req.get('host')}${baseUrl}?token=${tokenResult.accessToken}`;
+    const fullUrl = buildTokenUrl(baseUrl, req, tokenResult.accessToken);
 
     // Generate QR code if requested
     let qrCode = null;
@@ -1023,6 +1023,20 @@ function getTokenBaseUrl(type, roomId) {
   }
 }
 
+// Helper: Build full token URL using EXTERNAL_URL if configured
+function buildTokenUrl(baseUrl, req, token) {
+  // Check for EXTERNAL_URL environment variable (e.g., https://your-domain.com)
+  // This is essential for Docker deployments where req.headers.host returns internal service names
+  const externalUrl = process.env.EXTERNAL_URL;
+  if (externalUrl) {
+    // Remove trailing slash if present
+    const base = externalUrl.replace(/\/$/, '');
+    return `${base}${baseUrl}?token=${token}`;
+  }
+  // Fallback to request host (works for localhost, direct IP access)
+  return `${req.protocol}://${req.get('host')}${baseUrl}?token=${token}`;
+}
+
 // Helper: Get error message
 function getTokenErrorMessage(reason) {
   const messages = {
@@ -1062,17 +1076,21 @@ app.use((err, req, res, next) => {
 app.get('{*path}', (req, res, next) => {
   const reqPath = req.path;
 
-  // Skip API routes, static files, admin, and files with extensions
+  // Skip API routes, static files, admin (has dedicated route below), and files with extensions
   if (reqPath.startsWith('/api/') ||
       reqPath.startsWith('/css/') ||
       reqPath.startsWith('/js/') ||
-      reqPath.startsWith('/admin') ||
       reqPath.includes('.') ||
       reqPath.startsWith('/view/')) {  // MediaMTX proxy paths
     return next();
   }
 
-  // Serve index.html for SPA routes
+  // Serve admin.html for /admin paths
+  if (reqPath.startsWith('/admin')) {
+    return res.sendFile(path.join(__dirname, '../../public/admin.html'));
+  }
+
+  // Serve index.html for other SPA routes
   res.sendFile(path.join(__dirname, '../../public/index.html'));
 });
 
