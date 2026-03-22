@@ -43,7 +43,7 @@ class DirectorDashboard {
     const user = window.authService.getCurrentUser();
     if (!user) return false;
 
-    const allowedRoles = ['director', 'admin', 'moderator', 'operator'];
+    const allowedRoles = ['director', 'admin', 'operator'];
     return allowedRoles.includes(user.role);
   }
 
@@ -138,9 +138,6 @@ class DirectorDashboard {
     let roleNavLinks = '';
     if (userRole === 'admin') {
       roleNavLinks += '<a href="/admin" class="btn btn-secondary">Admin Panel</a>';
-    }
-    if (userRole === 'moderator' || userRole === 'admin') {
-      roleNavLinks += '<a href="/moderator-dashboard" class="btn btn-secondary">Moderator Dashboard</a>';
     }
     if (userRole === 'operator' || userRole === 'admin') {
       roleNavLinks += '<a href="/monitoring" class="btn btn-secondary">Monitoring</a>';
@@ -281,7 +278,7 @@ class DirectorDashboard {
           '<div class="denied-icon">&#128683;</div>' +
           '<h1>Access Denied</h1>' +
           '<p>You don\'t have permission to access the Director Dashboard.</p>' +
-          '<p class="denied-hint">This area requires director, admin, moderator, or operator privileges.</p>' +
+          '<p class="denied-hint">This area requires director, admin, or operator privileges.</p>' +
           '<button id="back-btn" class="btn btn-primary">Go to Home</button>' +
         '</div>' +
       '</div>';

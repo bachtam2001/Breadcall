@@ -195,49 +195,6 @@ async function buildLoginPage() {
   }
 }
 
-async function buildModeratorDashboard() {
-  console.log('Building moderator dashboard bundle...\n');
-
-  // Files to bundle (AuthService must be first as it sets up window.authService)
-  const moderatorFiles = ['AuthService.js', 'ModeratorDashboard.js'];
-
-  // Concatenate files
-  let combined = '';
-  for (const file of moderatorFiles) {
-    const content = fs.readFileSync(path.join(CLIENT_DIR, file), 'utf-8');
-    combined += `/* ===== ${file} ===== */\n${content}\n`;
-  }
-
-  // Write combined file temporarily
-  const tempFile = path.join(BUILD_DIR, '_temp_moderator_combined.js');
-  fs.writeFileSync(tempFile, combined);
-
-  try {
-    await esbuild.build({
-      entryPoints: [tempFile],
-      outfile: path.join(BUILD_DIR, 'ModeratorDashboard.bundle.min.js'),
-      minify: true,
-      sourcemap: false,
-      bundle: true,
-      format: 'iife',
-      target: 'es2020',
-      define: {
-        'process.env.NODE_ENV': '"production"'
-      },
-      legalComments: 'none'
-    });
-
-    // Clean up temp file
-    fs.unlinkSync(tempFile);
-
-    console.log('✓ Built: ModeratorDashboard.bundle.min.js');
-  } catch (error) {
-    fs.unlinkSync(tempFile);
-    console.error('Failed to build moderator dashboard:', error.message);
-    process.exit(1);
-  }
-}
-
 async function buildOperatorDashboard() {
   console.log('Building operator dashboard bundle...\n');
 
@@ -317,7 +274,6 @@ async function buildAll() {
   await buildAdminApp();
   await buildDirectorApp();
   await buildLoginPage();
-  await buildModeratorDashboard();
   await buildOperatorDashboard();
   await buildCSS();
 
@@ -330,7 +286,6 @@ async function buildAll() {
     'AdminDashboard.bundle.min.js',
     'DirectorDashboard.bundle.min.js',
     'LoginPage.bundle.min.js',
-    'ModeratorDashboard.bundle.min.js',
     'OperatorDashboard.bundle.min.js'
   ];
   console.log('\nBundle sizes:');

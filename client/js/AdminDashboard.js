@@ -229,9 +229,6 @@ class AdminDashboard {
     if (userRole === 'director' || userRole === 'admin') {
       roleNavLinks += '<a href="/director-dashboard" class="btn btn-secondary">Director Dashboard</a>';
     }
-    if (userRole === 'moderator' || userRole === 'admin') {
-      roleNavLinks += '<a href="/moderator-dashboard" class="btn btn-secondary">Moderator Dashboard</a>';
-    }
     if (userRole === 'operator' || userRole === 'admin') {
       roleNavLinks += '<a href="/monitoring" class="btn btn-secondary">Monitoring</a>';
     }
@@ -298,7 +295,6 @@ class AdminDashboard {
               '<option value="admin">Admin</option>' +
               '<option value="director">Director</option>' +
               '<option value="co_director">Co-Director</option>' +
-              '<option value="moderator">Moderator</option>' +
               '<option value="publisher">Publisher</option>' +
               '<option value="participant">Participant</option>' +
               '<option value="viewer">Viewer</option>' +
@@ -583,7 +579,6 @@ class AdminDashboard {
                   '<option value="admin">Admin</option>' +
                   '<option value="director">Director</option>' +
                   '<option value="co_director">Co-Director</option>' +
-                  '<option value="moderator">Moderator</option>' +
                   '<option value="publisher">Publisher</option>' +
                   '<option value="participant">Participant</option>' +
                   '<option value="viewer">Viewer</option>' +
@@ -623,7 +618,6 @@ class AdminDashboard {
                   '<option value="admin">Admin</option>' +
                   '<option value="director">Director</option>' +
                   '<option value="co_director">Co-Director</option>' +
-                  '<option value="moderator">Moderator</option>' +
                   '<option value="publisher">Publisher</option>' +
                   '<option value="participant">Participant</option>' +
                   '<option value="viewer">Viewer</option>' +
@@ -655,7 +649,6 @@ class AdminDashboard {
                   '<option value="admin">Admin</option>' +
                   '<option value="director">Director</option>' +
                   '<option value="co_director">Co-Director</option>' +
-                  '<option value="moderator">Moderator</option>' +
                   '<option value="publisher">Publisher</option>' +
                   '<option value="participant">Participant</option>' +
                   '<option value="viewer">Viewer</option>' +
@@ -912,7 +905,6 @@ class AdminDashboard {
     switch (role) {
       case 'admin': return 'role-badge-admin';
       case 'director': return 'role-badge-director';
-      case 'moderator': return 'role-badge-moderator';
       case 'operator': return 'role-badge-operator';
       default: return 'role-badge-default';
     }

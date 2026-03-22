@@ -1,8 +1,9 @@
 -- Seed Data: Roles and Permissions (Simplified RBAC)
--- Date: 2026-03-16
+-- Date: 2026-03-17
 -- Changes:
 --   - super_admin -> admin (creates users, full access)
 --   - removed room_admin role
+--   - removed moderator role (merged into co_director)
 --   - director can create rooms
 --   - publisher has participant + view permissions (Google Meet style)
 --   - user registration disabled (admin creates all users)
@@ -35,6 +36,9 @@ UPDATE users SET role = 'admin' WHERE role = 'super_admin';
 -- Migrate existing room_admin users to director role (closest equivalent)
 UPDATE users SET role = 'director' WHERE role = 'room_admin';
 
+-- Migrate existing moderator users to co_director role
+UPDATE users SET role = 'co_director' WHERE role = 'moderator';
+
 -- ============================================================================
 -- SYSTEM ROLES (Global permissions)
 -- ============================================================================
@@ -51,7 +55,6 @@ ON CONFLICT (name) DO UPDATE SET
 INSERT INTO roles (name, hierarchy, description) VALUES
   ('director', 70, 'Can create rooms, full control over assigned rooms'),
   ('co_director', 60, 'Can assist director - switch scenes, moderate chat'),
-  ('moderator', 50, 'Can mute/kick participants, manage chat'),
   ('publisher', 30, 'Can publish media, view others (Google Meet style)'),
   ('participant', 20, 'Can join room, send audio/video, chat'),
   ('viewer', 10, 'View-only access to streams')
@@ -112,16 +115,6 @@ INSERT INTO role_permissions (role, permission, object_type) VALUES
   ('co_director', 'stream:publish', 'room'),
   ('co_director', 'chat:moderate', 'room'),
   ('co_director', 'chat:send', 'room')
-ON CONFLICT (role, permission, object_type) DO NOTHING;
-
--- Moderator: Chat and participant management
-INSERT INTO role_permissions (role, permission, object_type) VALUES
-  ('moderator', 'room:view', 'room'),
-  ('moderator', 'user:kick', 'room'),
-  ('moderator', 'user:mute', 'room'),
-  ('moderator', 'chat:moderate', 'room'),
-  ('moderator', 'chat:send', 'room'),
-  ('moderator', 'stream:view_all', 'room')
 ON CONFLICT (role, permission, object_type) DO NOTHING;
 
 -- Publisher: Participant + view others (Google Meet style)

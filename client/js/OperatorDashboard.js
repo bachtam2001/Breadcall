@@ -185,9 +185,6 @@ class OperatorDashboard {
     if (userRole === 'director' || userRole === 'admin') {
       roleNavLinks += '<a href="/director-dashboard" class="btn btn-secondary">Director Dashboard</a>';
     }
-    if (userRole === 'moderator' || userRole === 'admin') {
-      roleNavLinks += '<a href="/moderator-dashboard" class="btn btn-secondary">Moderator Dashboard</a>';
-    }
 
     this.appElement.innerHTML =
       '<div class="admin-dashboard animate-fade-in">' +
