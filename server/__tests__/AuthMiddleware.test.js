@@ -66,8 +66,7 @@ describe('AuthMiddleware', () => {
   // Mock data for roles and permissions
   const mockRoles = [
     { name: 'admin', hierarchy: 100, description: 'Full system access' },
-    { name: 'room_admin', hierarchy: 80, description: 'Create and manage own rooms' },
-    { name: 'moderator', hierarchy: 60, description: 'Manage participants in assigned rooms' },
+    { name: 'director', hierarchy: 70, description: 'Can create rooms, full control over assigned rooms' },
     { name: 'participant', hierarchy: 20, description: 'Join rooms, send audio/video' }
   ];
 
