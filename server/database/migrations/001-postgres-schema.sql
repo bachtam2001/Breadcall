@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS room_participants (
   room_id VARCHAR(10) NOT NULL,
   user_id TEXT REFERENCES users(id) ON DELETE CASCADE,  -- NULL for guests
   guest_session_id TEXT,  -- For non-registered users
-  role VARCHAR(50) NOT NULL,  -- director, co_director, moderator, publisher, participant, viewer
+  role VARCHAR(50) NOT NULL,  -- admin, operator, director, participant, viewer
   display_name VARCHAR(255),
   joined_at TIMESTAMPTZ DEFAULT NOW(),
   left_at TIMESTAMPTZ,
