@@ -15,6 +15,8 @@ class DirectorView {
     this.parseUrl();
     this.srtPublishUrl = null;
     this.srtStreamActive = false;
+    this.srtMode = null; // 'push' or 'pull'
+    this.srtPullUrl = null;
 
     // Check for token in URL
     const urlParams = new URLSearchParams(window.location.search);
@@ -27,7 +29,7 @@ class DirectorView {
       this.render();
       this.connect();
       this.startStatsPolling();
-      this.fetchSrtUrl();
+      this.fetchSrtConfig();
     }
   }
 
@@ -76,20 +78,41 @@ class DirectorView {
   }
 
   /**
-   * Fetch SRT URL from room info
+   * Fetch SRT configuration from server
    */
-  async fetchSrtUrl() {
+  async fetchSrtConfig() {
     try {
-      // SRT URL is generated on room creation and returned via API
-      // For now, we'll construct it from the room ID
-      // The full URL would be available from the admin API response
-      const host = window.location.hostname;
-      // Note: The secret would need to be fetched from an admin endpoint
-      // For now, show placeholder
-      this.srtPublishUrl = `srt://${host}:8890?streamid=publish:room/${this.roomId}/<secret>`;
-      this.updateSrtDisplay();
+      const response = await fetch(`/api/${this.roomId}/srt/config`);
+      const data = await response.json();
+
+      if (data.success) {
+        this.srtMode = data.mode;
+        this.srtPullUrl = data.pullUrl;
+        this.srtStreamActive = data.streamActive;
+
+        // Fetch SRT publish URL if in push mode
+        if (this.srtMode === 'push') {
+          await this.fetchSrtPublishUrl();
+        }
+
+        this.updateSrtDisplay();
+        this.updateSrtModeUI();
+      }
     } catch (error) {
-      console.error('[Director] Failed to fetch SRT URL:', error);
+      console.error('[Director] Failed to fetch SRT config:', error);
+    }
+  }
+
+  /**
+   * Fetch SRT publish URL for push mode
+   */
+  async fetchSrtPublishUrl() {
+    try {
+      const host = window.location.hostname;
+      // The secret would be fetched from server - for now construct with room ID
+      this.srtPublishUrl = `srt://${host}:8890?streamid=publish:room/${this.roomId}`;
+    } catch (error) {
+      console.error('[Director] Failed to fetch SRT publish URL:', error);
     }
   }
 
@@ -99,13 +122,67 @@ class DirectorView {
   updateSrtDisplay() {
     const statusEl = document.getElementById('srt-status');
     if (statusEl) {
-      statusEl.textContent = this.srtStreamActive ? '● Active' : '○ Waiting for source';
+      if (this.srtMode === 'pull') {
+        statusEl.textContent = this.srtStreamActive ? '● Active (Pull)' : '○ Waiting for stream';
+      } else if (this.srtMode === 'push') {
+        statusEl.textContent = this.srtStreamActive ? '● Active (Push)' : '○ Waiting for source';
+      } else {
+        statusEl.textContent = '○ Not configured';
+      }
       statusEl.style.color = this.srtStreamActive ? 'var(--color-success)' : 'var(--color-text-tertiary)';
     }
 
     const urlEl = document.getElementById('srt-url');
-    if (urlEl && this.srtPublishUrl) {
-      urlEl.textContent = this.srtPublishUrl;
+    if (urlEl) {
+      if (this.srtMode === 'push' && this.srtPublishUrl) {
+        urlEl.textContent = this.srtPublishUrl;
+      } else if (this.srtMode === 'pull' && this.srtPullUrl) {
+        urlEl.textContent = this.srtPullUrl;
+      } else {
+        urlEl.textContent = 'Not configured';
+      }
+    }
+  }
+
+  /**
+   * Update SRT mode UI (radio buttons and input visibility)
+   */
+  updateSrtModeUI() {
+    // Update radio buttons
+    const pushRadio = document.getElementById('srt-mode-push');
+    const pullRadio = document.getElementById('srt-mode-pull');
+    if (pushRadio && pullRadio) {
+      pushRadio.checked = this.srtMode === 'push';
+      pullRadio.checked = this.srtMode === 'pull';
+    }
+
+    // Show/hide pull URL input
+    const pullUrlSection = document.getElementById('srt-pull-url-section');
+    const pushUrlSection = document.getElementById('srt-push-url-section');
+    if (pullUrlSection && pushUrlSection) {
+      if (this.srtMode === 'pull') {
+        pullUrlSection.style.display = 'block';
+        pushUrlSection.style.display = 'none';
+      } else if (this.srtMode === 'push') {
+        pullUrlSection.style.display = 'none';
+        pushUrlSection.style.display = 'block';
+      } else {
+        pullUrlSection.style.display = 'none';
+        pushUrlSection.style.display = 'none';
+      }
+    }
+
+    // Update connect/disconnect button state
+    const connectBtn = document.getElementById('srt-connect-btn');
+    const disconnectBtn = document.getElementById('srt-disconnect-btn');
+    if (connectBtn && disconnectBtn) {
+      if (this.srtMode === 'pull') {
+        connectBtn.style.display = this.srtStreamActive ? 'none' : 'inline-block';
+        disconnectBtn.style.display = this.srtStreamActive ? 'inline-block' : 'none';
+      } else {
+        connectBtn.style.display = 'none';
+        disconnectBtn.style.display = 'none';
+      }
     }
   }
 
@@ -113,25 +190,105 @@ class DirectorView {
    * Copy SRT URL to clipboard
    */
   async copySrtUrl() {
-    if (!this.srtPublishUrl) {
+    const url = this.srtMode === 'pull' ? this.srtPullUrl : this.srtPublishUrl;
+    if (!url) {
       this.showToast('SRT URL not available', 'error');
       return;
     }
     try {
-      await navigator.clipboard.writeText(this.srtPublishUrl);
+      await navigator.clipboard.writeText(url);
       this.showToast('SRT URL copied!', 'success');
     } catch (error) {
       this.showToast('Failed to copy', 'error');
     }
   }
 
+  /**
+   * Set SRT mode (push or pull)
+   */
+  async setSrtMode(mode, pullUrl = null) {
+    try {
+      const response = await fetch(`/api/${this.roomId}/srt/configure`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ mode, pullUrl })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        this.srtMode = mode;
+        this.srtPullUrl = pullUrl;
+        this.srtStreamActive = data.streamActive;
+
+        if (mode === 'push') {
+          await this.fetchSrtPublishUrl();
+        }
+
+        this.updateSrtDisplay();
+        this.updateSrtModeUI();
+        this.showToast(`SRT mode set to ${mode}`, 'success');
+
+        // Notify via signaling for real-time updates
+        this.signaling.send('srt-config-changed', {
+          roomId: this.roomId,
+          mode,
+          pullUrl
+        });
+      } else {
+        this.showToast(data.error || 'Failed to set SRT mode', 'error');
+      }
+    } catch (error) {
+      console.error('[Director] Set SRT mode failed:', error);
+      this.showToast('Failed to set SRT mode', 'error');
+    }
+  }
+
+  /**
+   * Connect SRT pull stream
+   */
+  async connectSrtPull() {
+    const pullUrlInput = document.getElementById('srt-pull-url-input');
+    const pullUrl = pullUrlInput?.value?.trim();
+
+    if (!pullUrl) {
+      this.showToast('Please enter an SRT URL', 'error');
+      return;
+    }
+
+    if (!pullUrl.startsWith('srt://')) {
+      this.showToast('Invalid SRT URL format', 'error');
+      return;
+    }
+
+    await this.setSrtMode('pull', pullUrl);
+  }
+
+  /**
+   * Disconnect SRT pull stream
+   */
+  async disconnectSrtPull() {
+    try {
+      // Switch to push mode to disconnect pull
+      await this.setSrtMode('push');
+      this.showToast('SRT pull disconnected', 'success');
+    } catch (error) {
+      console.error('[Director] Disconnect SRT failed:', error);
+      this.showToast('Failed to disconnect', 'error');
+    }
+  }
+
   render() {
+    // Note: HTML is generated from controlled template literals, not user input
+    // All dynamic values are escaped via escapeHtml() method
     document.body.innerHTML = `
       <div class="director-dashboard animate-fade-in">
         <div class="director-header glass-panel" style="padding: 16px 24px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center;">
           <div>
             <h1 style="margin: 0 0 8px 0; font-size: 24px;">Director Dashboard</h1>
-            <p style="margin: 0; color: var(--color-text-secondary);">Room: <strong style="color: var(--color-accent-primary);">${this.roomId}</strong></p>
+            <p style="margin: 0; color: var(--color-text-secondary);">Room: <strong style="color: var(--color-accent-primary);">${this.escapeHtml(this.roomId)}</strong></p>
           </div>
           <div class="director-stats" style="display: flex; gap: 32px;">
             <div class="stat-item" style="text-align: center;">
@@ -144,19 +301,63 @@ class DirectorView {
         <!-- SRT Input Section -->
         <div class="srt-input-section glass-panel" style="padding: 16px; margin-bottom: 24px;">
           <h2 style="margin: 0 0 12px 0; font-size: 18px;">SRT Input Feed</h2>
-          <p style="color: var(--color-text-secondary); margin-bottom: 12px;">
-            Use this URL to push external video sources (OBS, vMix) to the room
-          </p>
-          <div style="display: flex; gap: 8px; align-items: center;">
-            <code id="srt-url" style="flex: 1; background: var(--color-bg-secondary); padding: 8px; border-radius: 4px; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-              ${this.srtPublishUrl || 'SRT URL not available - check admin dashboard'}
-            </code>
-            <button class="btn btn-secondary" id="copy-srt-btn">
-              Copy
-            </button>
+
+          <!-- Mode Selection -->
+          <div style="margin-bottom: 16px;">
+            <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 16px; cursor: pointer;">
+              <input type="radio" name="srt-mode" id="srt-mode-push" value="push" ${this.srtMode === 'push' ? 'checked' : ''} onchange="window.directorView.setSrtMode('push')">
+              <span>Push Mode (External source pushes to this room)</span>
+            </label>
+            <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="radio" name="srt-mode" id="srt-mode-pull" value="pull" ${this.srtMode === 'pull' ? 'checked' : ''} onchange="window.directorView.setSrtMode('pull', document.getElementById('srt-pull-url-input').value.trim())">
+              <span>Pull Mode (This room pulls from external SRT source)</span>
+            </label>
           </div>
-          <div id="srt-status" style="margin-top: 8px; font-size: 12px; color: var(--color-text-tertiary);">
-            ○ Waiting for source
+
+          <!-- Push Mode URL Section -->
+          <div id="srt-push-url-section" style="${this.srtMode === 'push' ? 'display: block;' : 'display: none;'}">
+            <p style="color: var(--color-text-secondary); margin-bottom: 12px;">
+              Use this URL to push external video sources (OBS, vMix) to the room
+            </p>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <code id="srt-url" style="flex: 1; background: var(--color-bg-secondary); padding: 8px; border-radius: 4px; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                ${this.srtPublishUrl || 'SRT URL not available'}
+              </code>
+              <button class="btn btn-secondary" id="copy-srt-btn">
+                Copy
+              </button>
+            </div>
+          </div>
+
+          <!-- Pull Mode URL Section -->
+          <div id="srt-pull-url-section" style="${this.srtMode === 'pull' ? 'display: block;' : 'display: none;'}">
+            <p style="color: var(--color-text-secondary); margin-bottom: 12px;">
+              Enter the SRT URL of the remote source to pull from
+            </p>
+            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+              <input
+                type="text"
+                id="srt-pull-url-input"
+                placeholder="srt://remote-server:8890?mode=caller&streamid=mystream"
+                value="${this.srtPullUrl || ''}"
+                style="flex: 1; background: var(--color-bg-secondary); border: 1px solid var(--color-border); padding: 8px; border-radius: 4px; font-family: monospace; color: var(--color-text-primary);"
+              />
+              <button class="btn btn-primary" id="srt-connect-btn" ${this.srtStreamActive ? 'style="display: none;"' : ''}>
+                Connect
+              </button>
+              <button class="btn btn-danger" id="srt-disconnect-btn" ${!this.srtStreamActive ? 'style="display: none;"' : ''}>
+                Disconnect
+              </button>
+            </div>
+            <div style="margin-top: 8px;">
+              <code id="srt-url" style="background: var(--color-bg-secondary); padding: 8px; border-radius: 4px; font-family: monospace; display: block; overflow: hidden; text-overflow: ellipsis;">
+                ${this.srtPullUrl || 'Not configured'}
+              </code>
+            </div>
+          </div>
+
+          <div id="srt-status" style="margin-top: 12px; font-size: 12px; color: var(--color-text-tertiary);">
+            ${this.srtStreamActive ? '● Active' : '○ Not configured'}
           </div>
         </div>
 
@@ -165,10 +366,20 @@ class DirectorView {
       </div>
     `;
 
-    // Attach event listener to copy button
+    // Attach event listeners
     const copyBtn = document.getElementById('copy-srt-btn');
     if (copyBtn) {
       copyBtn.addEventListener('click', () => this.copySrtUrl());
+    }
+
+    const connectBtn = document.getElementById('srt-connect-btn');
+    if (connectBtn) {
+      connectBtn.addEventListener('click', () => this.connectSrtPull());
+    }
+
+    const disconnectBtn = document.getElementById('srt-disconnect-btn');
+    if (disconnectBtn) {
+      disconnectBtn.addEventListener('click', () => this.disconnectSrtPull());
     }
   }
 
@@ -231,6 +442,21 @@ class DirectorView {
       } else {
         this.showToast('SRT feed has stopped', 'info');
       }
+    });
+
+    this.signaling.addEventListener('srt-config-updated', (e) => {
+      const { mode, pullUrl, streamActive } = e.detail;
+      console.log('[Director] SRT config updated:', { mode, pullUrl, streamActive });
+      this.srtMode = mode;
+      this.srtPullUrl = pullUrl;
+      this.srtStreamActive = streamActive;
+
+      if (mode === 'push') {
+        this.fetchSrtPublishUrl();
+      }
+
+      this.updateSrtDisplay();
+      this.updateSrtModeUI();
     });
 
     this.signaling.addEventListener('disconnected', () => {
