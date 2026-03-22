@@ -208,12 +208,19 @@ class DirectorView {
   /**
    * Handle SRT mode radio button change
    */
-  onSrtModeChange(mode) {
+  async onSrtModeChange(mode) {
     // Just update UI to show the selected mode section
     // User must click Connect button to actually configure pull mode
     this.srtMode = mode;
+
+    // Fetch push URL when selecting push mode
+    if (mode === 'push' && !this.srtPublishUrl) {
+      await this.fetchSrtPublishUrl();
+    }
+
+    this.updateSrtDisplay();
     this.updateSrtModeUI();
-    this.showToast(`Selected ${mode} mode - ${mode === 'pull' ? 'enter URL and click Connect' : 'configure your external source'}`, 'info');
+    this.showToast(`Selected ${mode} mode - ${mode === 'pull' ? 'enter URL and click Connect' : 'use the URL below to configure your external source'}`, 'info');
   }
 
   /**
