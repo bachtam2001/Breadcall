@@ -54,7 +54,10 @@ class RoomManager {
       // SRT fields
       srtPublishSecret: crypto.randomBytes(16).toString('hex'), // 32-char hex
       srtStreamActive: false,
-      srtConnectedAt: null
+      srtConnectedAt: null,
+      // SRT pull mode fields
+      srtMode: null,    // 'push' | 'pull' | null
+      srtPullUrl: null  // string | null
     };
 
     this.rooms.set(roomId, room);

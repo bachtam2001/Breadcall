@@ -237,5 +237,19 @@ describe('RoomManager', () => {
 
       expect(room1.srtPublishSecret).not.toBe(room2.srtPublishSecret);
     });
+
+    test('createRoom initializes SRT pull mode fields', () => {
+      const room = roomManager.createRoom();
+
+      expect(room.srtMode).toBeNull();
+      expect(room.srtPullUrl).toBeNull();
+    });
+
+    test('SRT pull mode fields are included in room object', () => {
+      const room = roomManager.createRoom();
+
+      expect(room).toHaveProperty('srtMode');
+      expect(room).toHaveProperty('srtPullUrl');
+    });
   });
 });
