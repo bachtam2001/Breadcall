@@ -42,6 +42,7 @@ class TokenManager {
       type: options.type,
       roomId: options.roomId,
       userId: options.userId,
+      permissions: options.permissions ? [...options.permissions] : [],  // Store copy of permissions
       expiresAt: Date.now() + (this.refreshTokenExpiry * 1000),
       revoked: false,
       rotatedTo: null

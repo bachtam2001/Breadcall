@@ -146,6 +146,41 @@ describe('TokenManager', () => {
       // Verify database insert was called
       expect(mockPool.query).toHaveBeenCalled();
     });
+
+    test('stores permissions in refresh token data', async () => {
+      mockPool.query.mockResolvedValue({ rows: [] });
+      const testPermissions = ['room:create', 'room:delete', 'user:view'];
+
+      await tokenManager.generateTokenPair({
+        type: 'admin_token',
+        roomId: 'admin',
+        userId: 'user-123',
+        permissions: testPermissions
+      });
+
+      // Verify setJson was called with permissions
+      const setJsonCalls = redisClient.setJson.mock.calls;
+      const redisCall = setJsonCalls.find(call => call[0].startsWith('refresh:'));
+      expect(redisCall).toBeDefined();
+      expect(redisCall[1].permissions).toEqual(testPermissions);
+    });
+
+    test('includes permissions in JWT payload', async () => {
+      mockPool.query.mockResolvedValue({ rows: [] });
+      const testPermissions = ['room:create', 'user:assign_role'];
+
+      const { accessToken } = await tokenManager.generateTokenPair({
+        type: 'admin_token',
+        roomId: 'admin',
+        userId: 'user-123',
+        permissions: testPermissions
+      });
+
+      // Decode JWT to verify permissions are included
+      const jwt = require('jsonwebtoken');
+      const decoded = jwt.decode(accessToken);
+      expect(decoded.permissions).toEqual(testPermissions);
+    });
   });
 
   describe('validateAccessToken', () => {
