@@ -1114,3 +1114,72 @@ label {
 .quality-poor .quality-bar:nth-child(2),
 .quality-poor .quality-bar:nth-child(3),
 .quality-poor .quality-bar:nth-child(4) { opacity: 0.3; }
+
+/* --------------------------------------------------------------------------
+   Join Dialog
+   -------------------------------------------------------------------------- */
+.join-dialog {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal-overlay);
+}
+
+.join-dialog.active {
+  display: flex;
+}
+
+.join-dialog-content {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  max-width: 400px;
+  width: 90%;
+  padding: var(--space-xl);
+}
+
+.join-dialog-content h2 {
+  margin: 0 0 var(--space-lg);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xl);
+  text-align: center;
+}
+
+.join-dialog-content .form-group {
+  margin-bottom: var(--space-md);
+}
+
+.join-dialog-content label {
+  display: block;
+  margin-bottom: var(--space-xs);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.join-dialog-content input[type="text"],
+.join-dialog-content input[type="password"] {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  transition: border-color var(--transition-fast);
+}
+
+.join-dialog-content input[type="text"]:focus,
+.join-dialog-content input[type="password"]:focus {
+  outline: none;
+  border-color: var(--color-accent-primary);
+}
+
+.join-dialog-content #join-submit-btn {
+  width: 100%;
+  margin-top: var(--space-md);
+}

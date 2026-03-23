@@ -468,6 +468,54 @@ class UIManager {
   }
 
   /**
+   * Show join dialog with name and password fields
+   * @param {string} roomId - The room ID to join
+   */
+  showJoinDialog(roomId) {
+    // Remove any existing join dialog
+    let dialog = document.querySelector('.join-dialog');
+    if (dialog) {
+      dialog.remove();
+    }
+
+    dialog = document.createElement('div');
+    dialog.className = 'join-dialog active';
+    dialog.innerHTML = `
+      <div class="join-dialog-content">
+        <h2>Join Room ${roomId}</h2>
+        <div class="form-group">
+          <label for="join-name">Your Name</label>
+          <input type="text" id="join-name" placeholder="Enter your name" value="User">
+        </div>
+        <div class="form-group">
+          <label for="join-password">Password (if required)</label>
+          <input type="password" id="join-password" placeholder="Room password">
+        </div>
+        <button id="join-submit-btn" class="btn btn-primary">Join Room</button>
+      </div>
+    `;
+    document.body.appendChild(dialog);
+
+    // Bind submit button
+    const submitBtn = document.getElementById('join-submit-btn');
+    submitBtn.addEventListener('click', () => {
+      const name = document.getElementById('join-name').value;
+      const password = document.getElementById('join-password').value;
+      this.app.joinRoom(roomId, name, password);
+    });
+
+    // Allow Enter key to submit
+    const passwordInput = document.getElementById('join-password');
+    passwordInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        const name = document.getElementById('join-name').value;
+        const pwd = document.getElementById('join-password').value;
+        this.app.joinRoom(roomId, name, pwd);
+      }
+    });
+  }
+
+  /**
    * Update participant status
    */
   updateParticipantStatus(peerId, status) {

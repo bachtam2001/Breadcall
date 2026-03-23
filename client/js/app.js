@@ -272,21 +272,23 @@ class BreadCallApp {
         }
       }
 
-      // No valid session - render landing or normal join
+      // No valid session - render landing or show join dialog (DO NOT auto-join)
       if (!expectedRoomId) {
         this.uiManager.renderLanding();
       } else {
+        // Render room with join dialog - user must enter password if required
         this.uiManager.renderRoom(expectedRoomId);
-        this.joinRoom(expectedRoomId);
+        this.uiManager.showJoinDialog(expectedRoomId);
+        // DO NOT call joinRoom() here - let user enter password first
       }
     } catch (error) {
       console.error('[BreadCallApp] Session check failed:', error);
-      // Fallback to normal join
+      // Fallback - show join dialog instead of auto-joining
       if (!expectedRoomId) {
         this.uiManager.renderLanding();
       } else {
         this.uiManager.renderRoom(expectedRoomId);
-        this.joinRoom(expectedRoomId);
+        this.uiManager.showJoinDialog(expectedRoomId);
       }
     }
   }
