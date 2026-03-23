@@ -1247,38 +1247,19 @@ class AdminDashboard {
   // =============================================================================
 
   /**
-   * Copy room join link to clipboard (generates token)
+   * Copy plain room join link to clipboard (no token)
+   * User will enter password on join if required
    */
   async copyRoomLink(roomId, password) {
     var self = this;
+    var baseUrl = window.location.origin;
+    var roomUrl = baseUrl + '/room/' + roomId;
 
-    try {
-      // Generate token for room access (8 hour expiry)
-      var response = await this._apiCall('/api/tokens', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'room_access',
-          roomId: roomId,
-          options: { expiresAt: Date.now() + (8 * 3600 * 1000) }
-        })
-      });
-
-      var data = await response.json();
-
-      if (data.success) {
-        navigator.clipboard.writeText(data.url).then(function() {
-          self.showToast('Token link copied! (expires in 8 hours)', 'success');
-        }).catch(function(err) {
-          self.showToast('Failed to copy link', 'error');
-        });
-      } else {
-        self.showToast(data.error || 'Failed to generate token', 'error');
-      }
-    } catch (error) {
-      console.error('[AdminDashboard] Copy link failed:', error);
-      self.showToast('Connection error', 'error');
-    }
+    navigator.clipboard.writeText(roomUrl).then(function() {
+      self.showToast('Room link copied! Users will enter password on join.', 'success');
+    }).catch(function(err) {
+      self.showToast('Failed to copy link', 'error');
+    });
   }
 
   // =============================================================================
@@ -1916,6 +1897,9 @@ class AdminDashboard {
     }
   }
 }
+
+// Export for testing
+window.AdminDashboard = AdminDashboard;
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', function() {
