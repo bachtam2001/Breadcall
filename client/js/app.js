@@ -109,6 +109,16 @@ class BreadCallApp {
         }
       }
 
+      // Check if this is a join-related error (password failure, room not found, etc.)
+      if (message.includes('password') || message.includes('Invalid') || message.includes('not found')) {
+        // Redirect to landing with error info
+        const roomId = this.roomId;
+        if (roomId) {
+          console.log('[BreadCallApp] Join error for', roomId, '- redirecting to landing');
+          window.location.assign(`/?room=${encodeURIComponent(roomId)}&error=${encodeURIComponent(message)}`);
+          return;
+        }
+      }
 
       this.uiManager.showToast(message || 'Connection error', 'error');
     });
@@ -272,23 +282,22 @@ class BreadCallApp {
         }
       }
 
-      // No valid session - render landing or show join dialog (DO NOT auto-join)
+      // No valid session - redirect to landing with room ID pre-filled
       if (!expectedRoomId) {
         this.uiManager.renderLanding();
       } else {
-        // Render room with join dialog - user must enter password if required
-        this.uiManager.renderRoom(expectedRoomId);
-        this.uiManager.showJoinDialog(expectedRoomId);
-        // DO NOT call joinRoom() here - let user enter password first
+        // Redirect to landing with room ID in URL params for auto-fill
+        console.log('[BreadCallApp] No valid session for', expectedRoomId, '- redirecting to landing');
+        window.location.assign(`/?room=${encodeURIComponent(expectedRoomId)}`);
       }
     } catch (error) {
       console.error('[BreadCallApp] Session check failed:', error);
-      // Fallback - show join dialog instead of auto-joining
+      // Fallback - redirect to landing with room ID on error
       if (!expectedRoomId) {
         this.uiManager.renderLanding();
       } else {
-        this.uiManager.renderRoom(expectedRoomId);
-        this.uiManager.showJoinDialog(expectedRoomId);
+        console.log('[BreadCallApp] Session check error for', expectedRoomId, '- redirecting to landing');
+        window.location.assign(`/?room=${encodeURIComponent(expectedRoomId)}`);
       }
     }
   }

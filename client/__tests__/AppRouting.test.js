@@ -124,20 +124,20 @@ describe('handleRouteChange /room/:roomId', () => {
       // Simulate what handleRouteChange does when path starts with /room/
       const path = '/room/ABCD';
       const roomId = path.split('/')[2]?.toUpperCase();
-      
+
       expect(roomId).toBe('ABCD');
     });
 
     it('converts lowercase room ID to uppercase', () => {
       const path = '/room/abcd';
       const roomId = path.split('/')[2]?.toUpperCase();
-      
+
       expect(roomId).toBe('ABCD');
     });
   });
 
-  describe('shows join dialog instead of auto-joining', () => {
-    it('shows join dialog when no valid session exists', async () => {
+  describe('redirects to landing page on session failure', () => {
+    it('redirects to landing with room ID when no valid session exists', async () => {
       // Mock session check to return no existing room
       mockFetch.mockImplementation((url) => {
         if (url === '/api/session/room') {
@@ -155,18 +155,12 @@ describe('handleRouteChange /room/:roomId', () => {
       const app = createApp();
       await app.checkSessionForAutoRejoin('ABCD');
 
-      // Should render room
-      expect(mockUIManager.renderRoom).toHaveBeenCalledWith('ABCD');
-      // Should show join dialog
-      expect(mockUIManager.showJoinDialog).toHaveBeenCalledWith('ABCD');
-      // Should NOT auto-join
-      expect(mockSignaling.send).not.toHaveBeenCalledWith(
-        'join-room',
-        expect.anything()
-      );
+      // Should NOT show join dialog (old behavior) - redirect was used instead
+      expect(mockUIManager.showJoinDialog).not.toHaveBeenCalled();
+      expect(mockUIManager.renderRoom).not.toHaveBeenCalled();
     });
 
-    it('does not auto-join without password for protected rooms', async () => {
+    it('redirects to landing without auto-join for protected rooms', async () => {
       mockFetch.mockImplementation((url) => {
         if (url === '/api/session/room') {
           return Promise.resolve({
@@ -183,9 +177,11 @@ describe('handleRouteChange /room/:roomId', () => {
       const app = createApp();
       await app.checkSessionForAutoRejoin('ABCD');
 
-      // Should render room but NOT auto-join
-      expect(mockUIManager.renderRoom).toHaveBeenCalledWith('ABCD');
-      expect(mockUIManager.showJoinDialog).toHaveBeenCalledWith('ABCD');
+      // Should NOT auto-join (old behavior)
+      expect(mockSignaling.send).not.toHaveBeenCalledWith(
+        'join-room',
+        expect.anything()
+      );
     });
   });
 
@@ -211,10 +207,11 @@ describe('handleRouteChange /room/:roomId', () => {
       // Should auto-join with existing session
       expect(app.roomId).toBe('ABCD');
       expect(mockUIManager.renderRoom).toHaveBeenCalledWith('ABCD');
+      // Should NOT show join dialog (auto-joined instead)
       expect(mockUIManager.showJoinDialog).not.toHaveBeenCalled();
     });
 
-    it('shows join dialog when session has token for different room', async () => {
+    it('does not auto-join when session has token for different room', async () => {
       mockFetch.mockImplementation((url) => {
         if (url === '/api/session/room') {
           return Promise.resolve({
@@ -233,10 +230,11 @@ describe('handleRouteChange /room/:roomId', () => {
       await app.checkSessionForAutoRejoin('ABCD');
 
       // Should NOT auto-join (different room)
-      expect(mockUIManager.showJoinDialog).toHaveBeenCalledWith('ABCD');
+      // Redirect was used instead of showing join dialog
+      expect(mockUIManager.showJoinDialog).not.toHaveBeenCalled();
     });
 
-    it('shows join dialog on session check error', async () => {
+    it('does not show join dialog on session check error', async () => {
       mockFetch.mockImplementation(() => {
         return Promise.reject(new Error('Network error'));
       });
@@ -244,9 +242,8 @@ describe('handleRouteChange /room/:roomId', () => {
       const app = createApp();
       await app.checkSessionForAutoRejoin('ABCD');
 
-      // Should render room with join dialog on error
-      expect(mockUIManager.renderRoom).toHaveBeenCalledWith('ABCD');
-      expect(mockUIManager.showJoinDialog).toHaveBeenCalledWith('ABCD');
+      // Should NOT show join dialog (redirect was used on error)
+      expect(mockUIManager.showJoinDialog).not.toHaveBeenCalled();
     });
 
     it('renders landing page when no expected room and no session', async () => {
