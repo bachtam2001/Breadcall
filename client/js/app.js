@@ -109,17 +109,7 @@ class BreadCallApp {
         }
       }
 
-      // Check if this is a join-related error (password failure, room not found, etc.)
-      if (message.includes('password') || message.includes('Invalid') || message.includes('not found')) {
-        // Redirect to landing with error info
-        const roomId = this.roomId;
-        if (roomId) {
-          console.log('[BreadCallApp] Join error for', roomId, '- redirecting to landing');
-          window.location.assign(`/?room=${encodeURIComponent(roomId)}&error=${encodeURIComponent(message)}`);
-          return;
-        }
-      }
-
+      // Show error toast for join failures
       this.uiManager.showToast(message || 'Connection error', 'error');
     });
 
