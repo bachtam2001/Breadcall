@@ -1,32 +1,54 @@
-# Signaling Server Dockerfile
-FROM node:20-alpine
+# Stage 1: Builder
+FROM node:20-alpine AS builder
 
-# Install dependencies
 WORKDIR /app
+
+# Install build dependencies
+RUN apk add --no-cache python3 make g++
 
 # Copy package files
 COPY package*.json ./
 
-# Install all dependencies (including dev deps for build)
+# Install all dependencies (including dev)
 RUN npm ci
 
 # Copy source code
 COPY server/ ./server/
 COPY client/ ./client/
 COPY build.js ./
+COPY public/ ./public/
 
-# Build JavaScript for production
+# Build production assets
 RUN npm run build
 
-# Copy HTML and CSS files to public directory
-COPY public/*.html /app/public/
-COPY public/css/ /app/public/css/
+# Stage 2: Production
+FROM node:20-alpine AS production
 
-# Remove dev dependencies to reduce image size
-RUN npm ci --only=production && npm prune --production
+# Install wget for health check
+RUN apk add --no-cache wget
 
-# Create logs directory
-RUN mkdir -p logs
+# Create non-root user (node user already exists in node:20-alpine with UID 1000)
+# Just need to ensure proper permissions
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install only production dependencies
+RUN npm ci --only=production && \
+    npm cache clean --force && \
+    rm -rf /tmp/*
+
+# Copy built assets from builder stage
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/server ./server
+
+# Create logs directory with correct permissions
+RUN mkdir -p logs && chown -R node:node /app
+
+# Switch to non-root user
+USER node
 
 # Expose port
 EXPOSE 3000
