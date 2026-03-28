@@ -10,7 +10,7 @@
 This design implements a complete CI/CD pipeline for BreadCall that:
 - Builds Docker images in GitHub Actions (not on VPS)
 - Pushes to GitHub Container Registry (GHCR)
-- Performs zero-downtime rolling deployments to VPS
+- Performs zero-downtime rolling deployments to VPS using Watchtower (no SSH required)
 - Uses multi-stage Docker builds for smaller, more secure images
 
 ---
@@ -36,31 +36,36 @@ Developer pushes tag (v1.2.3)
 │  ┌───────────────┐  │
 │  │ Push to GHCR  │  │
 │  │ (ghcr.io)     │  │
-│  └───────┬───────┘  │
-│          ▼          │
-│  ┌───────────────┐  │
-│  │ SSH Deploy    │  │
-│  │ to VPS        │  │
 │  └───────────────┘  │
 └─────────────────────┘
          │
-         ▼
-┌─────────────────────┐
-│        VPS          │
-│  ┌───────────────┐  │
-│  │ Pull Image    │  │
-│  │ from GHCR     │  │
-│  └───────┬───────┘  │
-│          ▼          │
-│  ┌───────────────┐  │
-│  │ Rolling       │  │
-│  │ Update        │  │
-│  └───────┬───────┘  │
-│          ▼          │
-│  ┌───────────────┐  │
-│  │ Health Check  │  │
-│  └───────────────┘  │
-└─────────────────────┘
+         ▼ (Watchtower polls GHCR)
+┌─────────────────────────────────────┐
+│              VPS                    │
+│  ┌─────────────┐  ┌─────────────┐  │
+│  │  Watchtower │  │  signaling  │  │
+│  │  (polls     │  │  (running)  │  │
+│  │   GHCR)     │  │             │  │
+│  └──────┬──────┘  └─────────────┘  │
+│         │                           │
+│         ▼ (new image detected)      │
+│  ┌─────────────┐  ┌─────────────┐  │
+│  │ Pull Image  │  │  signaling  │  │
+│  │ from GHCR   │  │  (new)      │  │
+│  └──────┬──────┘  │  starting   │  │
+│         │         └─────────────┘  │
+│         ▼                           │
+│  ┌─────────────┐  ┌─────────────┐  │
+│  │ Health Check│  │  signaling  │  │
+│  │ (built-in)  │  │  (old)      │  │
+│  └──────┬──────┘  │  stopping   │  │
+│         │         └─────────────┘  │
+│         ▼                           │
+│  ┌─────────────┐                    │
+│  │  Rollback   │  (if health fail) │
+│  │  if needed  │                    │
+│  └─────────────┘                    │
+└─────────────────────────────────────┘
 ```
 
 ---
@@ -90,10 +95,10 @@ Developer pushes tag (v1.2.3)
 - Push to `ghcr.io/{owner}/breadcall-signaling:{tag}`
 - Also tag as `latest`
 
-#### Job 3: Deploy
+#### Job 3: Deploy (Optional - Manual Trigger)
 - Depends on: Build & Push
-- SSH to VPS using deploy key
-- Run deploy script
+- Optional: Create GitHub Release with changelog
+- Note: Actual deployment handled by Watchtower on VPS
 
 ### 3.2 Multi-Stage Dockerfile
 
@@ -122,21 +127,47 @@ Developer pushes tag (v1.2.3)
 - Non-root user for security
 - No source code in final image
 
-### 3.3 Deploy Script (VPS)
+### 3.3 Watchtower Configuration (VPS)
 
-**File:** `scripts/deploy.sh` (on VPS)
+**What is Watchtower:**
+Automated container updater that polls container registries for new images and performs rolling updates.
 
-**Steps:**
-1. Export GitHub token from environment
-2. Login to GHCR: `echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin`
-3. Pull new image: `docker pull ghcr.io/{owner}/breadcall-signaling:{tag}`
-4. Update docker-compose.yml with new image tag
-5. Rolling update:
-   - Start new container: `docker-compose up -d --no-deps --scale signaling=2 signaling`
-   - Wait for health check (30s timeout, 3 retries)
-   - If healthy: remove old container
-   - If unhealthy: rollback (remove new, keep old)
-6. Cleanup: `docker image prune -f`
+**Configuration:**
+
+Add to `docker-compose.yml`:
+```yaml
+  watchtower:
+    image: containrrr/watchtower:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/.docker/config.json:/config.json  # GHCR auth
+    environment:
+      - WATCHTOWER_POLL_INTERVAL=300  # Check every 5 minutes
+      - WATCHTOWER_LABEL_ENABLE=true   # Only update labeled containers
+      - WATCHTOWER_ROLLING_RESTART=true
+      - WATCHTOWER_CLEANUP=true        # Remove old images
+      - WATCHTOWER_INCLUDE_STOPPED=true
+      - WATCHTOWER_REVIVE_STOPPED=false
+      - WATCHTOWER_TIMEOUT=60s
+      - WATCHTOWER_NOTIFICATIONS=shoutrrr
+      - WATCHTOWER_NOTIFICATION_URL=discord://token@id  # Optional
+    command: --label-enable
+    restart: unless-stopped
+```
+
+**Label containers for Watchtower:**
+Add to `signaling` service in docker-compose:
+```yaml
+  signaling:
+    image: ghcr.io/{owner}/breadcall-signaling:latest
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+```
+
+**Authentication:**
+1. Create GitHub PAT with `read:packages` scope
+2. Login on VPS: `echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin`
+3. Watchtower uses `/root/.docker/config.json` for auth
 
 ### 3.4 Database Migrations
 
@@ -163,21 +194,14 @@ Developer pushes tag (v1.2.3)
 - Store on VPS as environment variable
 - Rotate every 90 days
 
-### 4.2 VPS SSH Access
+### 4.2 No SSH Required
 
-**Authentication:**
-- Deploy key (SSH key pair) stored in GitHub Secrets
-- Restricted to deploy user on VPS (no sudo required)
-- Key has no passphrase for automation
+**Advantage:** No inbound SSH access needed from GitHub Actions
 
-**Permissions:**
-- Deploy user can:
-  - Run docker commands
-  - Write to `/opt/breadcall` directory
-  - Restart services via docker-compose
-- Deploy user cannot:
-  - Access other system files
-  - Execute arbitrary commands
+**VPS Setup Only:**
+- Initial setup done manually on VPS
+- No deploy keys or SSH configuration needed
+- Watchtower handles all updates automatically
 
 ### 4.3 Docker Security
 
@@ -267,29 +291,29 @@ Step 3: Stop old container
 
 | Secret | Description |
 |--------|-------------|
-| `VPS_HOST` | VPS IP address or hostname |
-| `VPS_USER` | Deploy user username |
-| `VPS_SSH_KEY` | Private key for SSH (deploy key) |
-| `VPS_DEPLOY_PATH` | Path to docker-compose on VPS (e.g., `/opt/breadcall`) |
-| `GHCR_PAT` | PAT for VPS to pull from GHCR |
+| `GITHUB_TOKEN` | Auto-provided, for GHCR push |
 
-### 6.2 Required VPS Setup
+### 6.2 Required VPS Configuration
 
-**Directory Structure:**
+**GitHub Container Registry Access:**
+- Create fine-grained PAT with `read:packages` scope
+- Store in VPS environment or `.env` file
+- Run once: `echo $GHCR_PAT | docker login ghcr.io -u USERNAME --password-stdin`
+- Watchtower uses Docker config for authentication
+
+### 6.3 VPS Directory Structure
+
 ```
 /opt/breadcall/
-├── docker-compose.yml
-├── .env
-├── scripts/
-│   └── deploy.sh
-└── data/
-    ├── postgres/
-    └── redis/
+├── docker-compose.yml      # Includes watchtower service
+├── .env                    # Environment variables
+├── data/
+│   ├── postgres/
+│   └── redis/
+└── logs/
 ```
 
-**Docker Compose Override:**
-- Use `docker-compose.prod.yml` for production-specific settings
-- Or: Keep single `docker-compose.yml` and update image tag via env var
+**No deploy scripts needed** - Watchtower handles everything automatically.
 
 ---
 
@@ -319,25 +343,35 @@ Step 3: Stop old container
 
 ## 8. Rollback Procedure
 
-### 8.1 Automatic Rollback
+### 8.1 Watchtower Automatic Rollback
 
-Deploy script handles automatic rollback on health check failure.
+Watchtower performs rolling restart with health check:
+1. Starts new container alongside old
+2. Waits for health check (Docker HEALTHCHECK)
+3. If healthy: stops old container
+4. If unhealthy: stops new container, keeps old running
 
 ### 8.2 Manual Rollback
 
-**If automatic rollback fails:**
+**If Watchtower rollback fails:**
 
 ```bash
 # On VPS
 cd /opt/breadcall
 
-# Revert to previous image
-docker-compose pull ghcr.io/{owner}/breadcall-signaling:{previous-tag}
+# Check which container is running
+docker-compose ps
+
+# Revert to specific tag
+# Edit docker-compose.yml to use previous tag
+vim docker-compose.yml
+
+# Restart with old version
 docker-compose up -d signaling
 
-# Or: Use backup container if still running
-docker-compose stop signaling-new
-docker-compose start signaling-old
+# Or: Pull and use specific version
+docker pull ghcr.io/{owner}/breadcall-signaling:v1.2.2
+docker-compose up -d signaling
 ```
 
 ---
@@ -369,12 +403,11 @@ docker-compose start signaling-old
 - [ ] Create `.github/workflows/deploy.yml`
 - [ ] Optimize `Dockerfile` (multi-stage)
 - [ ] Update `.dockerignore`
-- [ ] Create `scripts/deploy.sh` for VPS
-- [ ] Set up GitHub Secrets
-- [ ] Configure VPS deploy user and SSH key
+- [ ] Add Watchtower to `docker-compose.yml`
+- [ ] Configure GHCR authentication on VPS
 - [ ] Test deployment pipeline with `v0.0.0-test` tag
 - [ ] Document rollback procedures
-- [ ] Set up monitoring/notifications (optional)
+- [ ] Set up Watchtower notifications (optional)
 
 ---
 
@@ -384,9 +417,10 @@ docker-compose start signaling-old
 |--------|----------|-----------|
 | Build Location | GitHub Actions | Consistent environment, faster VPS deploys |
 | Registry | GHCR | Free, integrated with GitHub, no extra auth |
-| Update Strategy | Rolling | Simple, zero-downtime, works with remote nginx |
+| Update Strategy | Rolling (Watchtower) | Zero-downtime, no SSH required |
 | Database Migrations | Auto-run on start | Simplest approach, idempotent |
 | Secrets | VPS `.env` file | No secrets in images or repo |
+| Deploy Method | Watchtower polling | No inbound SSH, fully automated |
 
 ---
 
