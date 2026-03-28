@@ -34,9 +34,10 @@ services:
     restart: unless-stopped
 
   signaling:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/${GITHUB_OWNER:-yourusername}/breadcall-signaling:latest
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.monitor-only=false"
     env_file:
       - ./.env
     environment:
@@ -59,6 +60,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # Web Frontend (nginx)
   web:
@@ -93,6 +100,40 @@ services:
     networks:
       - breadcall-network
     restart: unless-stopped
+
+  # Watchtower - Automatic container updates
+  watchtower:
+    image: containrrr/watchtower:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOME}/.docker/config.json:/config.json:ro
+    environment:
+      # Poll every 5 minutes (300 seconds)
+      - WATCHTOWER_POLL_INTERVAL=300
+      # Enable rolling restart for zero-downtime updates
+      - WATCHTOWER_ROLLING_RESTART=true
+      # Only update containers with watchtower.enable label
+      - WATCHTOWER_LABEL_ENABLE=true
+      # Clean up old images after update
+      - WATCHTOWER_CLEANUP=true
+      # Include stopped containers in monitoring
+      - WATCHTOWER_INCLUDE_STOPPED=true
+      # Don't start stopped containers unless they were stopped by watchtower
+      - WATCHTOWER_REVIVE_STOPPED=false
+      # Timeout for container operations
+      - WATCHTOWER_TIMEOUT=60s
+      # Debug logging (optional, remove in production)
+      # - WATCHTOWER_DEBUG=true
+      # Notifications (optional - configure as needed)
+      # - WATCHTOWER_NOTIFICATIONS=shoutrrr
+      # - WATCHTOWER_NOTIFICATION_URL=discord://token@id
+      # - WATCHTOWER_NOTIFICATION_TITLE_TAG=BreadCall
+    command: --label-enable
+    networks:
+      - breadcall-network
+    restart: unless-stopped
+    # Run as root to access Docker socket
+    user: root
 
 volumes:
   breadcall-public:
