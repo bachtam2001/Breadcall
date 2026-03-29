@@ -39,8 +39,8 @@ class UIManager {
             </div>
             <div class="form-group">
               <label for="join-room-id">Room ID</label>
-              <input type="text" id="join-room-id" placeholder="4-letter code" maxlength="4"
-                     style="text-transform: uppercase; letter-spacing: 4px; text-align: center;"
+              <input type="text" id="join-room-id" placeholder="abc-defg-hij" maxlength="12"
+                     style="text-align: center;"
                      value="${roomIdFromUrl || ''}">
             </div>
             <div class="form-group">
@@ -82,19 +82,20 @@ class UIManager {
     joinForm.addEventListener('submit', (e) => {
       e.preventDefault();
       const name = document.getElementById('join-name').value;
-      const roomId = document.getElementById('join-room-id').value.toUpperCase();
+      const roomId = document.getElementById('join-room-id').value.toLowerCase();
       const password = document.getElementById('join-password').value;
 
-      if (roomId.length === 4) {
+      const roomIdPattern = /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/;
+      if (roomIdPattern.test(roomId)) {
         this.app.joinRoom(roomId, name, password);
       } else {
-        this.showToast('Please enter a valid 4-character room ID', 'error');
+        this.showToast('Please enter a valid room ID (e.g., abc-defg-hij)', 'error');
       }
     });
 
     const roomIdInput = document.getElementById('join-room-id');
     roomIdInput.addEventListener('input', (e) => {
-      e.target.value = e.target.value.toUpperCase();
+      e.target.value = e.target.value.toLowerCase();
     });
   }
 
