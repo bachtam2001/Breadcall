@@ -58,8 +58,8 @@ describe('SRT Auth Webhook', () => {
   test('rejects non-existent room', async () => {
     const payload = {
       action: 'publish',
-      path: 'room/FAKE',
-      query: 'streamid=publish:room/FAKE/a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4',
+      path: 'room/abc-defg-hij',
+      query: 'streamid=publish:room/abc-defg-hij/a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4',
       ip: '192.168.1.50',
       user_agent: 'OBS/29.0',
       protocol: 'srt'

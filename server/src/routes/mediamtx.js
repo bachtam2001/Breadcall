@@ -38,7 +38,7 @@ function createMediaMTXRoutes(roomManager) {
 
     // Extract secret from query string
     // Format: streamid=publish:room/ROOMID/SECRET
-    const streamIdMatch = query?.match(/^streamid=publish:room\/([A-Z0-9]+)\/([a-f0-9]+)$/);
+    const streamIdMatch = query?.match(/^streamid=publish:room\/([a-z]{3}-[a-z]{4}-[a-z]{3})\/([a-f0-9]+)$/);
     if (!streamIdMatch) {
       return { valid: false, reason: 'invalid_format' };
     }

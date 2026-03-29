@@ -82,7 +82,7 @@ describe('SignalingHandler', () => {
 
     test('should handle join error', async () => {
       await signalingHandler.handleJoinRoom(mockWs, {
-        roomId: 'XYZ8'
+        roomId: 'xyz-abcd-efg'
       });
 
       expect(mockWs.send).toHaveBeenCalledWith(
