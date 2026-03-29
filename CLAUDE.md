@@ -52,7 +52,12 @@ npm run build:dev
 | `AuthMiddleware.js` | Express session middleware for auth |
 | `RedisClient.js` | Redis connection wrapper for token revocation cache |
 | `RemoteControlAPI.js` | HTTP/WS API for external automation |
-| `database.js` | SQLite database for refresh token persistence |
+| `database.js` | PostgreSQL database for refresh tokens, users, roles, room data |
+| `RBACManager.js` | Role-based access control (admin, director, operator, moderator, viewer)
+| `UserManager.js` | User CRUD, password hashing with bcrypt
+| `OLAManager.js` | Operator-level access management for room assignments |
+| `MediaMTXClient.js` | HTTP API client for MediaMTX media server |
+| `RemoteControlAPI.js` | External automation API (HTTP/WebSocket) |
 
 ### Client (`client/js/`)
 
@@ -66,6 +71,12 @@ npm run build:dev
 | `WHIPClient.js` / `WHEPClient.js` | WHIP/WHEP protocol clients for MediaMTX |
 | `DirectorView.js` / `SoloView.js` | Specialized view controllers |
 | `AdminDashboard.js` | Admin panel for room management, participant monitoring, token generation |
+| `OperatorDashboard.js` | System-wide monitoring dashboard |
+| `LoginPage.js` | Authentication page with role-based redirects |
+| `AuthService.js` | Authentication API client (login, logout, token refresh) |
+| `DirectorDashboard.js` | Director view for managing room participants |
+| `DirectorView.js` | In-room director controls (mute, kick, spotlight) |
+| `SoloView.js` | Single stream viewer page |
 | `AudioMixer.js` | Multi-source audio mixing with EQ and compressor |
 | `FileTransfer.js` | P2P file transfer via DataChannel |
 | `SceneComposer.js` | Multi-stream layout composer |
@@ -112,37 +123,117 @@ npm run build:dev
 
 ## Docker Deployment
 
+**Production:**
 ```bash
-# Start all services
+# Start all services (pulls pre-built image from GHCR)
 docker-compose up -d
 
 # Services: nginx (80), signaling (3000), MediaMTX (8887)
+```
+
+**Development:**
+```bash
+# Start with local build (builds from source)
+docker compose -f docker-compose.dev.yml up -d --build
+
+# Rebuild after code changes
+docker compose -f docker-compose.dev.yml up -d --build signaling
 ```
 
 ## Environment Variables
 
 Required in `.env`:
 - `PORT` - Signaling server port (default: 3000)
+- `DATABASE_URL` - PostgreSQL connection URL (e.g., `postgres://user:pass@localhost:5432/breadcall`)
 - `REDIS_URL` - Redis connection URL
-- `DATABASE_PATH` - SQLite database path
 - `TOKEN_SECRET` - JWT signing secret
 - `CSRF_SECRET` - CSRF protection secret
 - `ALLOWED_ORIGINS` - CORS origins (comma-separated)
 - `TURN_SECRET` - TURN server secret
 - `EXTERNAL_IP` - Public IP for TURN
+- `DB_PASSWORD` - PostgreSQL password (for Docker Compose)
+- `EXTERNAL_URL` - Public domain for token URL generation
 
 ## URL Routes
 
 | Route | Description |
 |-------|-------------|
 | `/` | Landing page |
+| `/login` | Authentication page |
 | `/room/:roomId` | Room view |
 | `/view/:roomId/:streamId` | Solo stream view |
-| `/director/:roomId` | Director dashboard |
-| `/admin` | Admin dashboard (room management, tokens) |
+| `/director` | Director dashboard (standalone) |
+| `/director/:roomId` | Director view for specific room (owner or admin) |
+| `/admin` | Admin dashboard (all rooms, user management, tokens) |
+| `/monitoring` | Operator monitoring dashboard (system-wide view) |
 | `/whip/:streamName` | WHIP publish endpoint |
 | `/whep/:streamName` | WHEP playback endpoint |
 | `/view/:streamName/` | MediaMTX iframe player |
+
+## Room API
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/api/rooms` | GET | List rooms (filtered by ownership for directors) |
+| `/api/rooms` | POST | Create room (sets `owner_id` to current user) |
+| `/api/rooms/:id` | DELETE | Delete room (owner or admin only) |
+| `/api/rooms/:id/settings` | PUT | Update settings (owner or admin only) |
+| `/api/rooms/:id/participants` | GET | Get participants (owner or admin only) |
+
+See `docs/ROOM_OWNERSHIP.md` for the full ownership model.
+
+## Project Structure
+
+```
+/root/Breadcall/
+├── server/
+│   ├── src/              # Server source code
+│   │   ├── index.js      # Express server entry point
+│   │   ├── routes/       # API route handlers
+│   │   └── *.js          # Core modules (RoomManager, TokenManager, etc.)
+│   ├── database/
+│   │   ├── migrations/   # SQL schema migrations
+│   │   └── seed/         # Initial data (roles, permissions)
+│   └── __tests__/        # Server-side Jest tests
+├── client/
+│   ├── js/               # Client source code
+│   │   ├── app.js        # Main application entry
+│   │   └── *.js          # Feature modules
+│   ├── css/              # Stylesheets
+│   └── __tests__/        # Client-side Jest tests
+├── public/               # Static HTML files (served by nginx in production)
+├── docker/
+│   ├── nginx/
+│   │   └── nginx.conf    # Reverse proxy configuration
+│   └── mediamtx/
+│       └── mediamtx.yml  # Media server configuration
+└── docs/                 # Documentation
+```
+
+## Code Style & Conventions
+
+**Naming:**
+- Files: PascalCase for classes (`RoomManager.js`), camelCase for utilities
+- Classes: PascalCase (`RoomManager`, `TokenManager`)
+- Methods: camelCase (`joinRoom`, `generateTokens`)
+- Constants: UPPER_SNAKE_CASE for true constants
+
+**Error Handling:**
+- Server: Try/catch with structured error responses `{ success: false, error: 'message' }`
+- Client: Toast notifications for user-facing errors
+
+**Async Patterns:**
+- Server: `async/await` throughout
+- Client: `async/await` with Promise chains for WebSocket callbacks
+
+## Git Conventions
+
+**Commit Style (from git log):**
+- `feat:` New features
+- `fix:` Bug fixes
+- `docs:` Documentation updates
+- `chore:` Maintenance tasks
+- Format: `<type>: <description>` (lowercase, imperative mood)
 
 ## Key Conventions
 
