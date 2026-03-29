@@ -106,12 +106,35 @@ app.get('/api/csrf-token', (req, res) => {
   });
 });
 
-// Create room - RESTRICTED TO ADMIN ONLY (use /api/admin/rooms)
-app.post('/api/rooms', (req, res) => {
-  res.status(403).json({
-    success: false,
-    error: 'Room creation is restricted to admin users. Please use /api/admin/rooms with valid admin session.'
+// Create room - directors and admins can create rooms they own
+app.post('/api/rooms', doubleCsrfProtection, requireAuth(), async (req, res) => {
+  const user = req.user;
+  if (!['admin', 'director'].includes(user.role)) {
+    return res.status(403).json({ success: false, error: 'Not authorized' });
+  }
+  const { password, maxParticipants, quality, codec } = req.body;
+  const room = roomManager.createRoom({
+    password,
+    maxParticipants: maxParticipants || 10,
+    quality: quality || '720p',
+    codec: codec || 'H264',
+    ownerId: user.id
   });
+  res.json({ success: true, roomId: room.id });
+});
+
+// List rooms - owners-based access control
+app.get('/api/rooms', requireAuth(), async (req, res) => {
+  const user = req.user;
+  let rooms;
+  if (user.role === 'admin') {
+    rooms = roomManager.getAllRooms();
+  } else if (['director', 'operator'].includes(user.role)) {
+    rooms = roomManager.getRoomsByOwner(user.id);
+  } else {
+    return res.status(403).json({ success: false, error: 'Not authorized' });
+  }
+  res.json({ success: true, rooms });
 });
 
 // Get room info
@@ -146,11 +169,19 @@ app.get('/api/rooms/:roomId/srt-status', (req, res) => {
   });
 });
 
-// Get room participants
-app.get('/api/rooms/:roomId/participants', (req, res) => {
-  const room = roomManager.getRoom(req.params.roomId);
+// Get room participants with ownership check
+app.get('/api/rooms/:roomId/participants', requireAuth(), async (req, res) => {
+  const user = req.user;
+  const { roomId } = req.params;
+
+  const room = roomManager.getRoom(roomId);
   if (!room) {
     return res.status(404).json({ success: false, error: 'Room not found' });
+  }
+
+  // Check ownership or admin
+  if (user.role !== 'admin' && room.ownerId !== user.id) {
+    return res.status(403).json({ success: false, error: 'Not authorized' });
   }
 
   const participants = Array.from(room.participants.values()).map(p => ({
@@ -158,10 +189,83 @@ app.get('/api/rooms/:roomId/participants', (req, res) => {
     name: p.name,
     joinedAt: p.joinedAt,
     isSendingVideo: p.isSendingVideo,
-    isSendingAudio: p.isSendingAudio
+    isSendingAudio: p.isSendingAudio,
+    isMuted: p.isMuted,
+    isVideoOff: p.isVideoOff
   }));
 
   res.json({ success: true, participants });
+});
+
+// Delete room with ownership check
+app.delete('/api/rooms/:roomId', doubleCsrfProtection, requireAuth(), async (req, res) => {
+  const user = req.user;
+  const { roomId } = req.params;
+
+  const room = roomManager.getRoom(roomId);
+  if (!room) {
+    return res.status(404).json({ success: false, error: 'Room not found' });
+  }
+
+  // Check ownership or admin
+  if (user.role !== 'admin' && room.ownerId !== user.id) {
+    return res.status(403).json({ success: false, error: 'Not authorized' });
+  }
+
+  const deleted = roomManager.deleteRoom(roomId);
+  if (!deleted) {
+    return res.status(404).json({ success: false, error: 'Room not found' });
+  }
+  res.json({ success: true });
+});
+
+// Update room settings with ownership check
+app.put('/api/rooms/:roomId/settings', doubleCsrfProtection, requireAuth(), async (req, res) => {
+  const user = req.user;
+  const { roomId } = req.params;
+
+  const room = roomManager.getRoom(roomId);
+  if (!room) {
+    return res.status(404).json({ success: false, error: 'Room not found' });
+  }
+
+  // Check ownership or admin
+  if (user.role !== 'admin' && room.ownerId !== user.id) {
+    return res.status(403).json({ success: false, error: 'Not authorized' });
+  }
+
+  const { quality, codec, maxParticipants } = req.body;
+  const updates = {};
+
+  if (quality && ['720p', '1080p', 'original'].includes(quality)) {
+    updates.quality = quality;
+  }
+  if (codec && ['H264', 'H265', 'VP8', 'VP9'].includes(codec)) {
+    updates.codec = codec;
+  }
+  if (maxParticipants && typeof maxParticipants === 'number' && maxParticipants > 0) {
+    updates.maxParticipants = maxParticipants;
+  }
+
+  // Update room settings
+  Object.assign(room, updates);
+
+  // Notify all participants in the room about settings change
+  signalingHandler.broadcastRoomSettings(roomId, {
+    quality: room.quality,
+    codec: room.codec,
+    maxParticipants: room.maxParticipants
+  });
+
+  res.json({
+    success: true,
+    room: {
+      id: room.id,
+      quality: room.quality,
+      codec: room.codec,
+      maxParticipants: room.maxParticipants
+    }
+  });
 });
 
 // Get WebRTC configuration for clients
@@ -527,134 +631,6 @@ app.get('/api/admin/me', requireAuth(), (req, res) => {
   });
 });
 
-// List all rooms (admin with room:view_all permission)
-app.get('/api/admin/rooms', requireAuth(), async (req, res) => {
-  const hasPerm = await rbacManager.hasPermission(req.user.role, 'room:view_all') ||
-                  await rbacManager.hasPermission(req.user.role, '*', 'room');
-  if (!hasPerm) {
-    return res.status(403).json({ success: false, error: 'Insufficient permissions' });
-  }
-  const rooms = roomManager.getAllRooms();
-  res.json({ success: true, rooms });
-});
-
-// Get room participants (admin only)
-app.get('/api/admin/rooms/:roomId/participants', requireAuth(), (req, res) => {
-  const room = roomManager.getRoom(req.params.roomId);
-  if (!room) {
-    return res.status(404).json({ success: false, error: 'Room not found' });
-  }
-
-  const participants = Array.from(room.participants.values()).map(p => ({
-    participantId: p.participantId,
-    name: p.name,
-    joinedAt: p.joinedAt,
-    isSendingVideo: p.isSendingVideo,
-    isSendingAudio: p.isSendingAudio,
-    isMuted: p.isMuted,
-    isVideoOff: p.isVideoOff
-  }));
-
-  const directors = roomManager.getRoomDirectors(req.params.roomId);
-
-  res.json({ success: true, participants, directors });
-});
-
-// Create room (admin with room:create permission)
-app.post('/api/admin/rooms', doubleCsrfProtection, requireAuth(), async (req, res) => {
-  const hasPerm = await rbacManager.hasPermission(req.user.role, 'room:create');
-  if (!hasPerm) {
-    return res.status(403).json({ success: false, error: 'Insufficient permissions' });
-  }
-  try {
-    const { password, maxParticipants = 10, quality = 'hd', codec = 'H264' } = req.body;
-    const room = roomManager.createRoom({
-      password,
-      maxParticipants,
-      quality,
-      codec
-    });
-
-    // Generate SRT publish URL
-    const externalSrtHost = process.env.EXTERNAL_SRT_HOST || req.headers.host;
-    const srtPublishUrl = `srt://${externalSrtHost}:8890?streamid=publish:room/${room.id}/${room.srtPublishSecret}`;
-
-    res.json({
-      success: true,
-      roomId: room.id,
-      room: {
-        id: room.id,
-        maxParticipants: room.maxParticipants,
-        quality: room.quality,
-        codec: room.codec,
-        createdAt: room.createdAt,
-        srtPublishSecret: room.srtPublishSecret
-      },
-      srtPublishUrl,
-      createdAt: room.createdAt
-    });
-  } catch (error) {
-    res.status(400).json({ success: false, error: error.message });
-  }
-});
-
-// Delete room (admin with room:delete permission)
-app.delete('/api/admin/rooms/:roomId', doubleCsrfProtection, requireAuth(), async (req, res) => {
-  const hasPerm = await rbacManager.hasPermission(req.user.role, 'room:delete');
-  if (!hasPerm) {
-    return res.status(403).json({ success: false, error: 'Insufficient permissions' });
-  }
-  const deleted = roomManager.deleteRoom(req.params.roomId);
-  if (!deleted) {
-    return res.status(404).json({ success: false, error: 'Room not found' });
-  }
-  res.json({ success: true });
-});
-
-// Update room settings (admin with room:update permission)
-app.put('/api/admin/rooms/:roomId/settings', doubleCsrfProtection, requireAuth(), async (req, res) => {
-  const hasPerm = await rbacManager.hasPermission(req.user.role, 'room:update');
-  if (!hasPerm) {
-    return res.status(403).json({ success: false, error: 'Insufficient permissions' });
-  }
-  const room = roomManager.getRoom(req.params.roomId);
-  if (!room) {
-    return res.status(404).json({ success: false, error: 'Room not found' });
-  }
-
-  const { quality, codec, maxParticipants } = req.body;
-  const updates = {};
-
-  if (quality && ['720p', '1080p', 'original'].includes(quality)) {
-    updates.quality = quality;
-  }
-  if (codec && ['H264', 'H265', 'VP8', 'VP9'].includes(codec)) {
-    updates.codec = codec;
-  }
-  if (maxParticipants && typeof maxParticipants === 'number' && maxParticipants > 0) {
-    updates.maxParticipants = maxParticipants;
-  }
-
-  // Update room settings
-  Object.assign(room, updates);
-
-  // Notify all participants in the room about settings change
-  signalingHandler.broadcastRoomSettings(req.params.roomId, {
-    quality: room.quality,
-    codec: room.codec,
-    maxParticipants: room.maxParticipants
-  });
-
-  res.json({
-    success: true,
-    room: {
-      id: room.id,
-      quality: room.quality,
-      codec: room.codec,
-      maxParticipants: room.maxParticipants
-    }
-  });
-});
 
 // =============================================================================
 // User Management API Routes
