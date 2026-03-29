@@ -16,15 +16,15 @@ class RoomManager {
   }
 
   /**
-   * Generate a short room ID (4 characters)
+   * Generate a room ID (3-4-3 hyphenated format)
+   * Format: xxx-xxxx-xxx (e.g., abc-defg-hij)
    */
   generateRoomId() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Excluding similar chars
-    let result = '';
-    for (let i = 0; i < 4; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return result;
+    const chars = 'abcdefghijklmnopqrstuvwxyz';
+    const part1 = Array.from({ length: 3 }, () => chars.charAt(Math.floor(Math.random() * chars.length))).join('');
+    const part2 = Array.from({ length: 4 }, () => chars.charAt(Math.floor(Math.random() * chars.length))).join('');
+    const part3 = Array.from({ length: 3 }, () => chars.charAt(Math.floor(Math.random() * chars.length))).join('');
+    return `${part1}-${part2}-${part3}`;
   }
 
   /**
