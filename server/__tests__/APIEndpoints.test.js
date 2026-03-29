@@ -131,7 +131,7 @@ describe('API Endpoints', () => {
 
       expect(response.body.success).toBe(true);
       expect(response.body).toHaveProperty('roomId');
-      expect(response.body.roomId).toHaveLength(4);
+      expect(response.body.roomId).toMatch(/^[a-z]{3}-[a-z]{4}-[a-z]{3}$/);
       expect(response.body).toHaveProperty('createdAt');
     });
 

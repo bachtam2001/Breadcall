@@ -17,7 +17,7 @@ describe('RoomManager', () => {
       const room = roomManager.createRoom();
 
       expect(room).toBeDefined();
-      expect(room.id).toHaveLength(4);
+      expect(room.id).toMatch(/^[a-z]{3}-[a-z]{4}-[a-z]{3}$/);
       expect(room.password).toBeNull();
       expect(room.maxParticipants).toBe(10);
       expect(room.quality).toBe('720p');

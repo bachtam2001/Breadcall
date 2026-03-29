@@ -43,7 +43,7 @@ describe('SRT Integration', () => {
     const srtPublishUrl = `srt://${host}:8890?streamid=publish:room/${room.id}/${room.srtPublishSecret}`;
 
     // Verify URL format
-    expect(srtPublishUrl).toMatch(/^srt:\/\/[^:]+:\d+\?streamid=publish:room\/[A-Z0-9]{4}\/[a-f0-9]{32}$/);
+    expect(srtPublishUrl).toMatch(/^srt:\/\/[^:]+:\d+\?streamid=publish:room\/[a-z]{3}-[a-z]{4}-[a-z]{3}\/[a-f0-9]{32}$/);
   });
 
   test('each room gets unique SRT secret', () => {
