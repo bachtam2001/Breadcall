@@ -17,13 +17,13 @@ function sanitizeInput(input) {
 }
 
 /**
- * Validate room ID format (4 uppercase alphanumeric characters, excluding ambiguous chars)
- * Matches RoomManager.generateRoomId() format: ABCDEFGHJKLMNPQRSTUVWXYZ23456789
+ * Validate room ID format (3-4-3 hyphenated lowercase letters)
+ * Matches RoomManager.generateRoomId() format: xxx-xxxx-xxx (e.g., abc-defg-hij)
  * @param {string} roomId - Room ID to validate
  * @returns {boolean}
  */
 function isValidRoomId(roomId) {
-  return typeof roomId === 'string' && /^[A-Z0-9]{4}$/.test(roomId);
+  return typeof roomId === 'string' && /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/.test(roomId);
 }
 
 /**
