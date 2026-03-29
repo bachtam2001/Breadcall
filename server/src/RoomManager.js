@@ -33,7 +33,7 @@ class RoomManager {
    * @returns {Object} Created room
    */
   createRoom(options = {}) {
-    const { password = null, maxParticipants = 10, quality = '720p', codec = 'H264' } = options;
+    const { password = null, maxParticipants = 10, quality = '720p', codec = 'H264', ownerId = null } = options;
 
     // Generate unique room ID
     let roomId;
@@ -43,6 +43,7 @@ class RoomManager {
 
     const room = {
       id: roomId,
+      ownerId,
       password,
       maxParticipants,
       quality,
@@ -456,6 +457,7 @@ class RoomManager {
   getAllRooms() {
     return Array.from(this.rooms.values()).map(room => ({
       id: room.id,
+      ownerId: room.ownerId,
       participantCount: room.participants.size,
       maxParticipants: room.maxParticipants,
       quality: room.quality,
@@ -464,6 +466,27 @@ class RoomManager {
       emptySince: room.emptySince,
       password: room.password
     }));
+  }
+
+  /**
+   * Get rooms by owner ID
+   * @param {string} ownerId - Owner ID
+   * @returns {Array} List of rooms owned by the specified owner
+   */
+  getRoomsByOwner(ownerId) {
+    return Array.from(this.rooms.values())
+      .filter(room => room.ownerId === ownerId)
+      .map(room => ({
+        id: room.id,
+        ownerId: room.ownerId,
+        participantCount: room.participants.size,
+        maxParticipants: room.maxParticipants,
+        quality: room.quality,
+        codec: room.codec,
+        createdAt: room.createdAt,
+        emptySince: room.emptySince,
+        password: room.password
+      }));
   }
 
   /**
