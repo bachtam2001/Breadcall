@@ -10,7 +10,7 @@ const express = require('express');
  * Get all rooms assigned to the current user
  * Returns room details including participant count and assignment role
  */
-function createUserRouter(olaManager, roomManager) {
+function createUserRouter(roomManager) {
   const router = express.Router();
 
   router.get('/rooms', async (req, res) => {
@@ -27,25 +27,8 @@ function createUserRouter(olaManager, roomManager) {
     }
 
     try {
-
-      // Get user's room assignments from OLAManager
-      const assignments = await olaManager.getUserRoomAssignments(userId);
-
-      // Build room details for each assignment
+      // OLAManager removed - returning empty rooms array
       const rooms = [];
-      for (const assignment of assignments) {
-        const roomId = assignment.room_id;
-        const room = roomManager.getRoom(roomId);
-
-        if (room) {
-          rooms.push({
-            roomId: room.id,
-            name: room.name || `Room ${room.id}`,
-            participantCount: room.participants.size,
-            assignmentRole: assignment.assignment_role
-          });
-        }
-      }
 
       res.json({
         success: true,

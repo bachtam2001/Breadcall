@@ -15,7 +15,6 @@ const RBACManager = require('./RBACManager');
 const UserManager = require('./UserManager');
 const TokenManager = require('./TokenManager');
 const RedisClient = require('./RedisClient');
-const OLAManager = require('./OLAManager');
 const MediaMTXClient = require('./MediaMTXClient');
 const bootstrap = require('./bootstrap');
 const createUserRouter = require('./routes/user');
@@ -167,11 +166,19 @@ app.get('/api/rooms/:roomId/participants', (req, res) => {
 
 // Get WebRTC configuration for clients
 app.get('/api/webrtc-config', (req, res) => {
-  const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-  // X-Forwarded-Host may include port (e.g., localhost:3000) - use it for proxied environments
-  const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
-  // WebRTC traffic goes through nginx proxy, use same host as signaling
-  const webrtcUrl = `${protocol}://${host}`;
+  // Use EXTERNAL_URL if available (Docker deployments) to avoid internal container hostnames
+  const externalUrl = process.env.EXTERNAL_URL;
+  let webrtcUrl;
+
+  if (externalUrl) {
+    // Remove trailing slash if present
+    webrtcUrl = externalUrl.replace(/\/$/, '');
+  } else {
+    // Fallback to request headers (for localhost, direct IP access)
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
+    webrtcUrl = `${protocol}://${host}`;
+  }
 
   res.json({
     success: true,
@@ -205,14 +212,15 @@ app.post('/api/whip-whep-auth', async (req, res) => {
       return res.status(401).json({ error: 'Invalid token' });
     }
 
-    // Extract room ID from URI (e.g., /room/ABCD/whip -> ABCD)
-    const uriMatch = originalUri?.match(/^\/[^/]+\/(whip|whep)\/room\/([A-Z0-9]+)/);
-    if (!uriMatch) {
+    // Extract room ID from URI - supports both participant streams and room feeds
+    // Participant: /room/ABCD_xxx/whep | Room feed: /room/room/ABCD/whep
+    const match = originalUri?.match(/^\/room\/(?:([A-Z0-9]+)_[^/]+|room\/([A-Z0-9]+))\/(whip|whep)/);
+    const roomId = match ? (match[1] || match[2]) : null;
+
+    if (!roomId) {
       console.log('[WHIP/WHEP Auth] Invalid URI format:', originalUri);
       return res.status(400).json({ error: 'Invalid URI format' });
     }
-
-    const roomId = uriMatch[2];
     const room = roomManager.getRoom(roomId);
 
     if (!room) {
@@ -1121,7 +1129,6 @@ let userManager = null;
 let tokenManager = null;
 let rbacManager = null;
 let redisClient = null;
-let olaManager = null;
 
 // Parse token from cookie for WebSocket connections
 const parseTokenFromCookie = (cookie) => {
@@ -1217,17 +1224,13 @@ async function startServer() {
     // Initialize AuthMiddleware with dependencies
     authMiddleware = new AuthMiddleware(db, rbacManager, tokenManager);
 
-    // Initialize OLAManager
-    olaManager = new OLAManager(db, rbacManager);
-    await olaManager.initialize();
-
     // Make managers available to routes via app.locals
     app.locals.rbacManager = rbacManager;
     app.locals.userManager = userManager;
     app.locals.tokenManager = tokenManager;
 
     // Mount user routes with auth middleware
-    app.use('/api/user', requireAuth(), createUserRouter(olaManager, roomManager));
+    app.use('/api/user', requireAuth(), createUserRouter(roomManager));
 
     // Mount monitoring routes with auth middleware
     app.use('/api/monitoring', requireAuth(), createMonitoringRouter(roomManager));

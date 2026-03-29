@@ -9,16 +9,12 @@ const express = require('express');
 jest.mock('ws');
 
 const RoomManager = require('../src/RoomManager');
-const OLAManager = require('../src/OLAManager');
 const createUserRouter = require('../src/routes/user');
 const createMonitoringRouter = require('../src/routes/monitoring');
 
 describe('User and Monitoring Routes', () => {
   let app;
   let roomManager;
-  let olaManager;
-  let mockDb;
-  let mockRbac;
 
   // Mock auth middleware
   const mockRequireAuth = (req, res, next) => {
@@ -35,27 +31,13 @@ describe('User and Monitoring Routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
-    // Create mock database
-    mockDb = {
-      insertRoomAssignment: jest.fn(),
-      removeRoomAssignment: jest.fn(),
-      getRoomAssignmentsForUser: jest.fn(),
-      getRoomAssignments: jest.fn(),
-      getUserById: jest.fn(),
-      grantStreamAccess: jest.fn(),
-      getStreamAccessForUser: jest.fn(),
-      getStreamAccess: jest.fn(),
-      revokeStreamAccess: jest.fn()
-    };
-
     // Create mock RBAC manager
-    mockRbac = {
+    const mockRbac = {
       hasPermission: jest.fn()
     };
 
     // Create fresh instances
     roomManager = new RoomManager();
-    olaManager = new OLAManager(mockDb, mockRbac);
 
     // Setup express app for testing
     app = express();
@@ -68,7 +50,7 @@ describe('User and Monitoring Routes', () => {
     mockRbac.hasPermission.mockResolvedValue(true);
 
     // Mount routes with mock auth middleware
-    app.use('/api/user', mockRequireAuth, createUserRouter(olaManager, roomManager));
+    app.use('/api/user', mockRequireAuth, createUserRouter(roomManager));
     app.use('/api/monitoring', mockRequireAuth, createMonitoringRouter(roomManager));
   });
 
@@ -78,8 +60,6 @@ describe('User and Monitoring Routes', () => {
 
   describe('GET /api/user/rooms', () => {
     test('should return empty rooms array when user has no assignments', async () => {
-      mockDb.getRoomAssignmentsForUser.mockResolvedValue([]);
-
       const response = await request(app)
         .get('/api/user/rooms')
         .expect(200);
@@ -90,119 +70,26 @@ describe('User and Monitoring Routes', () => {
       });
     });
 
-    test('should return rooms with assignment details', async () => {
-      // Create a room first
-      const room = roomManager.createRoom({ maxParticipants: 10 });
-
-      // Mock room assignments
-      mockDb.getRoomAssignmentsForUser.mockResolvedValue([
-        {
-          id: 'assignment_1',
-          user_id: 'test-user-id',
-          room_id: room.id,
-          assignment_role: 'director',
-          granted_by: 'admin',
-          granted_at: new Date().toISOString(),
-          expires_at: null
-        }
-      ]);
-
+    test('should return empty rooms array (OLAManager removed)', async () => {
       const response = await request(app)
         .get('/api/user/rooms')
         .expect(200);
-
-      expect(response.body.success).toBe(true);
-      expect(response.body.rooms).toHaveLength(1);
-      expect(response.body.rooms[0]).toMatchObject({
-        roomId: room.id,
-        participantCount: 0,
-        assignmentRole: 'director'
-      });
-      expect(response.body.rooms[0]).toHaveProperty('name');
-    });
-
-    test('should return multiple room assignments', async () => {
-      // Create rooms
-      const room1 = roomManager.createRoom();
-      const room2 = roomManager.createRoom();
-
-      // Add participants to room1
-      await roomManager.joinRoom(room1.id, { name: 'User 1' });
-      await roomManager.joinRoom(room1.id, { name: 'User 2' });
-
-      // Mock room assignments
-      mockDb.getRoomAssignmentsForUser.mockResolvedValue([
-        {
-          id: 'assignment_1',
-          user_id: 'test-user-id',
-          room_id: room1.id,
-          assignment_role: 'director',
-          granted_by: 'admin',
-          granted_at: new Date().toISOString(),
-          expires_at: null
-        },
-        {
-          id: 'assignment_2',
-          user_id: 'test-user-id',
-          room_id: room2.id,
-          assignment_role: 'director',
-          granted_by: 'admin',
-          granted_at: new Date().toISOString(),
-          expires_at: null
-        }
-      ]);
-
-      const response = await request(app)
-        .get('/api/user/rooms')
-        .expect(200);
-
-      expect(response.body.success).toBe(true);
-      expect(response.body.rooms).toHaveLength(2);
-
-      // Check room1 has correct participant count
-      const room1Data = response.body.rooms.find(r => r.roomId === room1.id);
-      expect(room1Data).toBeDefined();
-      expect(room1Data.participantCount).toBe(2);
-      expect(room1Data.assignmentRole).toBe('director');
-
-      // Check room2 has correct assignment role
-      const room2Data = response.body.rooms.find(r => r.roomId === room2.id);
-      expect(room2Data).toBeDefined();
-      expect(room2Data.assignmentRole).toBe('director');
-    });
-
-    test('should handle database errors gracefully', async () => {
-      mockDb.getRoomAssignmentsForUser.mockRejectedValue(new Error('Database error'));
-
-      const response = await request(app)
-        .get('/api/user/rooms')
-        .expect(500);
 
       expect(response.body).toEqual({
-        success: false,
-        error: 'Failed to fetch user rooms'
+        success: true,
+        rooms: []
       });
     });
 
-    test('should skip rooms that no longer exist', async () => {
-      mockDb.getRoomAssignmentsForUser.mockResolvedValue([
-        {
-          id: 'assignment_1',
-          user_id: 'test-user-id',
-          room_id: 'NONEXISTENT',
-          assignment_role: 'director',
-          granted_by: 'admin',
-          granted_at: new Date().toISOString(),
-          expires_at: null
-        }
-      ]);
-
+    test('should return empty rooms array regardless of input', async () => {
       const response = await request(app)
         .get('/api/user/rooms')
         .expect(200);
 
-      expect(response.body.success).toBe(true);
-      expect(response.body.rooms).toHaveLength(0);
+      expect(response.body).toEqual({
+        success: true,
+        rooms: []
+      });
     });
   });
 
