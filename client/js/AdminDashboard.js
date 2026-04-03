@@ -23,6 +23,8 @@ class AdminDashboard {
     this.isLoggedIn = await window.authService.init();
     if (this.isLoggedIn) {
       this.renderDashboard();
+      await this.loadUsers();
+      this.usersLoaded = true;
     } else {
       // Redirect to login page
       window.location.href = '/login';

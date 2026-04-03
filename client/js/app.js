@@ -47,6 +47,7 @@ class BreadCallApp {
     this.signaling.addEventListener('joined-room', (e) => {
       const { participantId, existingPeers, room } = e.detail;
       this.participantId = participantId;
+      this.roomId = room?.id || this.roomId; // Set roomId from server response
       this.roomCodec = room?.codec || 'H264'; // Store room codec
 
       // Clear join timeout and reset joining state
@@ -482,8 +483,9 @@ class BreadCallApp {
         container.insertBefore(videoEl, container.firstChild);
       }
 
-      // Subscribe via WHEP to room path
-      const whepEndpoint = `${this.webrtcConfig.webrtcUrl}/whep/room/${roomId}`;
+      // Subscribe via WHEP to room feed stream
+      // Stream name format in MediaMTX is "room/{roomId}" for SRT feeds
+      const whepEndpoint = `${this.webrtcConfig.webrtcUrl}/room/room/${roomId}/whep`;
       this.roomFeedPlayer = new WHEPClient({
         endpoint: whepEndpoint,
         videoElement: videoEl,

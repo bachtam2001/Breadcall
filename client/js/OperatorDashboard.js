@@ -183,7 +183,7 @@ class OperatorDashboard {
       roleNavLinks += '<a href="/admin" class="btn btn-secondary">Admin Panel</a>';
     }
     if (userRole === 'director' || userRole === 'admin') {
-      roleNavLinks += '<a href="/director-dashboard" class="btn btn-secondary">Director Dashboard</a>';
+      roleNavLinks += '<a href="/director" class="btn btn-secondary">Director Dashboard</a>';
     }
 
     this.appElement.innerHTML =

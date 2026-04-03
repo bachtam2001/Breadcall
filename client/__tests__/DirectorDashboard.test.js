@@ -46,7 +46,7 @@ describe('DirectorDashboard', () => {
       expect(document.getElementById('create-room-btn')).toBeTruthy();
     });
 
-    test('should NOT show create room button for non-admin users', () => {
+    test('should show create room button for director users', async () => {
       window.authService.getCurrentUser = jest.fn().mockReturnValue({ id: 'director-user', role: 'director' });
 
       const mockElement = document.createElement('div');
@@ -55,34 +55,30 @@ describe('DirectorDashboard', () => {
 
       const dashboard = new DirectorDashboard();
 
-      expect(document.getElementById('create-room-btn')).toBeFalsy();
+      await Promise.resolve();
+
+      expect(document.getElementById('create-room-btn')).toBeTruthy();
     });
 
-    test('should create room via POST /api/rooms', async () => {
+    test('should create room via POST /api/rooms using fetchWithAuth', async () => {
       const mockElement = document.createElement('div');
       mockElement.id = 'app';
       document.body.appendChild(mockElement);
 
-      // Mock CSRF token fetch
-      global.fetch = jest.fn()
-        .mockResolvedValueOnce({ json: jest.fn().mockResolvedValue({ csrfToken: 'test-csrf' }) })
-        .mockResolvedValueOnce({ json: jest.fn().mockResolvedValue({ success: true, room: { roomId: 'ABCD', name: 'Test Room' } }) });
+      window.authService.fetchWithAuth = jest.fn().mockResolvedValue({
+        json: jest.fn().mockResolvedValue({ success: true, roomId: 'ABCD' })
+      });
 
       const dashboard = new DirectorDashboard();
-      dashboard.isAdmin = true;
       dashboard.loadRooms = jest.fn();
       dashboard.showToast = jest.fn();
 
-      const result = await dashboard.createRoom({ name: 'Test Room', description: 'Test Description' });
+      const result = await dashboard.createRoom({ maxParticipants: 10, quality: '720p', codec: 'H264' });
 
-      expect(global.fetch).toHaveBeenCalledWith('/api/rooms', expect.objectContaining({
+      expect(window.authService.fetchWithAuth).toHaveBeenCalledWith('/api/rooms', expect.objectContaining({
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': 'test-csrf'
-        },
-        credentials: 'include',
-        body: JSON.stringify({ name: 'Test Room', description: 'Test Description' })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ maxParticipants: 10, quality: '720p', codec: 'H264' })
       }));
       expect(result.success).toBe(true);
     });
@@ -92,29 +88,28 @@ describe('DirectorDashboard', () => {
       mockElement.id = 'app';
       document.body.appendChild(mockElement);
 
-      global.fetch = jest.fn()
-        .mockResolvedValueOnce({ json: jest.fn().mockResolvedValue({ csrfToken: 'test-csrf' }) })
-        .mockResolvedValueOnce({ json: jest.fn().mockResolvedValue({ success: false, error: 'Room name already exists' }) });
+      window.authService.fetchWithAuth = jest.fn().mockResolvedValue({
+        json: jest.fn().mockResolvedValue({ success: false, error: 'Room name already exists' })
+      });
 
       const dashboard = new DirectorDashboard();
-      dashboard.isAdmin = true;
       dashboard.loadRooms = jest.fn();
       dashboard.showToast = jest.fn();
 
-      const result = await dashboard.createRoom({ name: 'Test Room' });
+      const result = await dashboard.createRoom({ maxParticipants: 10 });
 
       expect(dashboard.showToast).toHaveBeenCalledWith('Room name already exists', 'error');
       expect(result.success).toBe(false);
     });
 
-    test('should delete room via DELETE /api/rooms/:id', async () => {
+    test('should delete room via DELETE /api/rooms/:id using fetchWithAuth', async () => {
       const mockElement = document.createElement('div');
       mockElement.id = 'app';
       document.body.appendChild(mockElement);
 
-      global.fetch = jest.fn()
-        .mockResolvedValueOnce({ json: jest.fn().mockResolvedValue({ csrfToken: 'test-csrf' }) })
-        .mockResolvedValueOnce({ json: jest.fn().mockResolvedValue({ success: true }) });
+      window.authService.fetchWithAuth = jest.fn().mockResolvedValue({
+        json: jest.fn().mockResolvedValue({ success: true })
+      });
 
       const dashboard = new DirectorDashboard();
       dashboard.rooms = [{ roomId: 'ABCD', name: 'Test Room' }];
@@ -125,10 +120,8 @@ describe('DirectorDashboard', () => {
 
       await dashboard.deleteRoom('ABCD');
 
-      expect(global.fetch).toHaveBeenCalledWith('/api/rooms/ABCD', expect.objectContaining({
-        method: 'DELETE',
-        headers: { 'X-CSRF-Token': 'test-csrf' },
-        credentials: 'include'
+      expect(window.authService.fetchWithAuth).toHaveBeenCalledWith('/api/rooms/ABCD', expect.objectContaining({
+        method: 'DELETE'
       }));
       expect(dashboard.showToast).toHaveBeenCalledWith('Room deleted successfully', 'success');
     });
@@ -167,14 +160,14 @@ describe('DirectorDashboard', () => {
       expect(adminLinkForDirector).toBeFalsy();
     });
 
-    test('should load rooms from /api/user/rooms', async () => {
+    test('should load rooms from /api/rooms', async () => {
       const mockElement = document.createElement('div');
       mockElement.id = 'app';
       document.body.appendChild(mockElement);
 
       const mockRooms = [
-        { roomId: 'ROOM1', name: 'Room 1', assignments: { 'director-user': 'director' } },
-        { roomId: 'ROOM2', name: 'Room 2', assignments: { 'director-user': 'director' } }
+        { roomId: 'ROOM1', name: 'Room 1' },
+        { roomId: 'ROOM2', name: 'Room 2' }
       ];
 
       window.authService.fetchWithAuth = jest.fn().mockResolvedValue({
@@ -186,20 +179,19 @@ describe('DirectorDashboard', () => {
 
       await Promise.resolve();
 
-      expect(window.authService.fetchWithAuth).toHaveBeenCalledWith('/api/user/rooms', expect.objectContaining({
+      expect(window.authService.fetchWithAuth).toHaveBeenCalledWith('/api/rooms', expect.objectContaining({
         credentials: 'include'
       }));
     });
 
-    test('should show only rooms where user has director assignment', async () => {
+    test('should show all rooms returned by server (server filters by ownership)', async () => {
       const mockElement = document.createElement('div');
       mockElement.id = 'app';
       document.body.appendChild(mockElement);
 
       const mockRooms = [
-        { roomId: 'ROOM1', name: 'Room 1', assignments: { 'director-user': 'director' } },
-        { roomId: 'ROOM2', name: 'Room 2', assignments: { 'other-user': 'director' } },
-        { roomId: 'ROOM3', name: 'Room 3', assignments: { '*': 'director' } }
+        { roomId: 'ROOM1', name: 'Room 1' },
+        { roomId: 'ROOM3', name: 'Room 3' }
       ];
 
       window.authService.fetchWithAuth = jest.fn().mockResolvedValue({
@@ -212,40 +204,36 @@ describe('DirectorDashboard', () => {
       // Wait for loadRooms to complete
       await new Promise(resolve => setTimeout(resolve, 10));
 
-      // Should only include ROOM1 (assigned to user) and ROOM3 (wildcard assignment)
+      // All rooms from server should be shown (server already filters by ownership)
       expect(dashboard.rooms.length).toBe(2);
       expect(dashboard.rooms.map(r => r.roomId)).toEqual(['ROOM1', 'ROOM3']);
     });
 
-    test('should update room settings via PUT /api/rooms/:id', async () => {
+    test('should update room settings via PUT /api/rooms/:id/settings using fetchWithAuth', async () => {
       const mockElement = document.createElement('div');
       mockElement.id = 'app';
       document.body.appendChild(mockElement);
 
-      global.fetch = jest.fn()
-        .mockResolvedValueOnce({ json: jest.fn().mockResolvedValue({ csrfToken: 'test-csrf' }) })
-        .mockResolvedValueOnce({ json: jest.fn().mockResolvedValue({ success: true }) });
+      window.authService.fetchWithAuth = jest.fn().mockResolvedValue({
+        json: jest.fn().mockResolvedValue({ success: true })
+      });
 
       const dashboard = new DirectorDashboard();
       dashboard.showToast = jest.fn();
       dashboard.loadRooms = jest.fn();
 
       const result = await dashboard.updateRoomSettings('ROOM1', {
-        name: 'Updated Room Name',
-        description: 'Updated description',
+        quality: '1080p',
+        codec: 'H265',
         maxParticipants: 10
       });
 
-      expect(global.fetch).toHaveBeenCalledWith('/api/rooms/ROOM1', expect.objectContaining({
+      expect(window.authService.fetchWithAuth).toHaveBeenCalledWith('/api/rooms/ROOM1/settings', expect.objectContaining({
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': 'test-csrf'
-        },
-        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: 'Updated Room Name',
-          description: 'Updated description',
+          quality: '1080p',
+          codec: 'H265',
           maxParticipants: 10
         })
       }));
@@ -350,56 +338,38 @@ describe('DirectorDashboard', () => {
   });
 
   describe('UI Rendering', () => {
-    test('should render room cards with correct status', () => {
+    test('should render room cards with stats and info', () => {
       const mockElement = document.createElement('div');
       mockElement.id = 'app';
       document.body.appendChild(mockElement);
 
       const dashboard = new DirectorDashboard();
 
-      const liveRoom = { roomId: 'LIVE1', name: 'Live Room', participantCount: 3 };
-      const offlineRoom = { roomId: 'OFF1', name: 'Offline Room', participantCount: 0 };
+      const room = { roomId: 'ABCD', participantCount: 3, maxParticipants: 10, quality: '720p', codec: 'H264' };
+      const html = dashboard.renderRoomCard(room);
 
-      const liveHtml = dashboard.renderRoomCard(liveRoom);
-      const offlineHtml = dashboard.renderRoomCard(offlineRoom);
-
-      expect(liveHtml).toContain('status-live');
-      expect(liveHtml).toContain('Live');
-      expect(offlineHtml).toContain('status-offline');
-      expect(offlineHtml).toContain('Offline');
+      expect(html).toContain('Room ABCD');
+      expect(html).toContain('data-room-id="ABCD"');
+      expect(html).toContain('Participants');
+      expect(html).toContain('Quality');
+      expect(html).toContain('Copy Link');
     });
 
-    test('should render action buttons for admin users only', () => {
+    test('should render action buttons for all users (server enforces ownership)', () => {
       const mockElement = document.createElement('div');
       mockElement.id = 'app';
       document.body.appendChild(mockElement);
 
-      // Admin user
-      window.authService.getCurrentUser = jest.fn().mockReturnValue({ id: 'admin', role: 'admin' });
-      const adminDashboard = new DirectorDashboard();
-      adminDashboard.isAdmin = true;
+      window.authService.getCurrentUser = jest.fn().mockReturnValue({ id: 'director', role: 'director' });
+      const dashboard = new DirectorDashboard();
 
       const room = { roomId: 'ROOM1', name: 'Test Room' };
-      const adminHtml = adminDashboard.renderRoomCard(room);
+      const html = dashboard.renderRoomCard(room);
 
-      expect(adminHtml).toContain('btn-participants');
-      expect(adminHtml).toContain('btn-settings');
-      expect(adminHtml).toContain('btn-delete-room');
-
-      // Director user (not admin)
-      document.body.innerHTML = '';
-      mockElement.id = 'app';
-      document.body.appendChild(mockElement);
-
-      window.authService.getCurrentUser = jest.fn().mockReturnValue({ id: 'director', role: 'director' });
-      const directorDashboard = new DirectorDashboard();
-      directorDashboard.isAdmin = false;
-
-      const directorHtml = directorDashboard.renderRoomCard(room);
-
-      expect(directorHtml).not.toContain('btn-participants');
-      expect(directorHtml).not.toContain('btn-settings');
-      expect(directorHtml).not.toContain('btn-delete-room');
+      // Action buttons shown for all users - server enforces ownership checks
+      expect(html).toContain('btn-participants');
+      expect(html).toContain('btn-settings');
+      expect(html).toContain('btn-delete-room');
     });
 
     test('should render access denied for users without director access', () => {

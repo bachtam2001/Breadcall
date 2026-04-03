@@ -42,9 +42,9 @@ class WebRTCManager extends EventTarget {
       await this.whipClient.stop();
     }
 
-    // MediaMTX WHIP endpoint format: {webrtcUrl}/{streamName}/whip
+    // MediaMTX WHIP endpoint format: {webrtcUrl}/room/{streamName}/whip
     const webrtcUrl = this.config.webrtcUrl;
-    const whipEndpoint = `${webrtcUrl}/${streamName}/whip`;
+    const whipEndpoint = `${webrtcUrl}/room/${streamName}/whip`;
     this.whipClient = new WHIPClient(whipEndpoint, {
       authToken: this.config.authToken,
       videoCodec: codec,
@@ -78,9 +78,9 @@ class WebRTCManager extends EventTarget {
       await this.closePlaybackConnection(participantId);
     }
 
-    // MediaMTX WHEP endpoint format: {webrtcUrl}/{streamName}/whep
+    // MediaMTX WHEP endpoint format: {webrtcUrl}/room/{streamName}/whep
     const webrtcUrl = this.config.webrtcUrl;
-    const whepEndpoint = `${webrtcUrl}/${streamName}/whep`;
+    const whepEndpoint = `${webrtcUrl}/room/${streamName}/whep`;
 
     console.log('[WebRTCManager] Connecting to MediaMTX for WHEP playback:', whepEndpoint);
 

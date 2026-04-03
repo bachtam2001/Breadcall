@@ -1,4 +1,25 @@
 services:
+  # Database migrations - runs before signaling
+  migrations:
+    image: postgres:17-alpine
+    volumes:
+      - ./server/database/migrations:/migrations:ro
+    environment:
+      DATABASE_URL: postgres://breadcall:${DB_PASSWORD:-changeme}@postgres:5432/breadcall
+    networks:
+      - breadcall-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c '
+        echo "Running database migrations..." &&
+        export PGPASSWORD=${DB_PASSWORD:-changeme} &&
+        psql -h postgres -U breadcall -d breadcall -f /migrations/001-postgres-schema.sql &&
+        echo "Migrations complete!"
+      '
+    restart: "no"
+
   # PostgreSQL Database
   postgres:
     image: postgres:17-alpine
@@ -33,10 +54,10 @@ services:
     restart: unless-stopped
 
   signaling:
-    image: ghcr.io/bachtam2001/breadcall:latest
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-      - "com.centurylinklabs.watchtower.monitor-only=false"
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
     env_file:
       - ./.env
     environment:
@@ -45,8 +66,6 @@ services:
       - REDIS_URL=redis://redis:6379
       - DB_POOL_MIN=2
       - DB_POOL_MAX=10
-      # Set EXTERNAL_URL to your public domain for correct token URL generation
-      # Example: - EXTERNAL_URL=https://your-domain.com
       - EXTERNAL_URL=${EXTERNAL_URL:-}
     volumes:
       - ./logs:/app/logs
@@ -55,6 +74,8 @@ services:
       - breadcall-network
     restart: unless-stopped
     depends_on:
+      migrations:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -85,47 +106,12 @@ services:
   mediamtx:
     image: bluenviron/mediamtx:latest
     ports:
-      # WebRTC HTTP signaling (WHIP/WHEP)
       - "8887:8887/tcp"
-      # WebRTC ICE traffic (UDP and TCP)
       - "9000:9000/udp"
       - "9000:9000/tcp"
-      # SRT (UDP)
       - "8890:8890/udp"
-      # Optional: HLS fallback
-      # - "8886:8886"
     volumes:
       - ./docker/mediamtx/mediamtx.yml:/mediamtx.yml:ro
-    networks:
-      - breadcall-network
-    restart: unless-stopped
-
-  # Watchtower - Automatic container updates
-  watchtower:
-    image: nickfedor/watchtower:latest
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ${HOME}/.docker/config.json:/config.json:ro
-    environment:
-      # Poll every 5 minutes (300 seconds)
-      - WATCHTOWER_POLL_INTERVAL=300
-      # Only update containers with watchtower.enable label
-      - WATCHTOWER_LABEL_ENABLE=true
-      # Clean up old images after update
-      - WATCHTOWER_CLEANUP=true
-      # Include stopped containers in monitoring
-      - WATCHTOWER_INCLUDE_STOPPED=true
-      # Don't start stopped containers unless they were stopped by watchtower
-      - WATCHTOWER_REVIVE_STOPPED=false
-      # Timeout for container operations
-      - WATCHTOWER_TIMEOUT=60s
-      # Debug logging (optional, remove in production)
-      # - WATCHTOWER_DEBUG=true
-      # Notifications (optional - configure as needed)
-      # - WATCHTOWER_NOTIFICATIONS=shoutrrr
-      # - WATCHTOWER_NOTIFICATION_URL=discord://token@id
-      # - WATCHTOWER_NOTIFICATION_TITLE_TAG=BreadCall
-    command: --label-enable
     networks:
       - breadcall-network
     restart: unless-stopped

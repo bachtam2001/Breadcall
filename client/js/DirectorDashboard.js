@@ -91,7 +91,7 @@ class DirectorDashboard {
   }
 
   enterDirectorView(roomId) {
-    window.location.href = `/view/${roomId}`;
+    window.location.href = `/director/${roomId}`;
   }
 
   // =============================================================================
@@ -104,7 +104,7 @@ class DirectorDashboard {
     this.renderContent();
 
     try {
-      const response = await window.authService.fetchWithAuth('/api/user/rooms', {
+      const response = await window.authService.fetchWithAuth('/api/rooms', {
         credentials: 'include'
       });
 
@@ -120,8 +120,11 @@ class DirectorDashboard {
       const data = await response.json();
 
       if (data.success && Array.isArray(data.rooms)) {
-        // Filter rooms where user has director assignment
-        this.rooms = data.rooms.filter(room => this.hasRoomDirectorAssignment(room));
+        // Normalize field names - server returns 'id', client uses 'roomId'
+        this.rooms = data.rooms.map(room => ({
+          ...room,
+          roomId: room.id || room.roomId
+        }));
       } else {
         this.rooms = [];
       }
@@ -189,7 +192,7 @@ class DirectorDashboard {
         '<section class="admin-section">' +
           '<div class="admin-section-header">' +
             '<h2 class="admin-section-title">Your Rooms</h2>' +
-            (this.isAdmin ? '<button class="btn btn-primary" id="create-room-btn">+ Create Room</button>' : '') +
+            '<button class="btn btn-primary" id="create-room-btn">+ Create Room</button>' +
           '</div>' +
           '<div class="rooms-grid" id="rooms-grid">' +
             '<div class="loading-spinner"><div class="spinner"></div></div>' +
@@ -207,12 +210,29 @@ class DirectorDashboard {
           '<div class="modal-body">' +
             '<form id="create-room-form">' +
               '<div class="form-group">' +
-                '<label for="new-room-name">Room Name</label>' +
-                '<input type="text" id="new-room-name" placeholder="Enter room name" required>' +
+                '<label for="new-room-password">Password (optional)</label>' +
+                '<input type="password" id="new-room-password" placeholder="Leave empty for public room">' +
               '</div>' +
               '<div class="form-group">' +
-                '<label for="new-room-description">Description (optional)</label>' +
-                '<input type="text" id="new-room-description" placeholder="Room description">' +
+                '<label for="new-room-max">Max Participants</label>' +
+                '<input type="number" id="new-room-max" value="10" min="2" max="50" placeholder="Maximum participants">' +
+              '</div>' +
+              '<div class="form-group">' +
+                '<label for="new-room-quality">Video Quality</label>' +
+                '<select id="new-room-quality">' +
+                  '<option value="720p">720p (HD)</option>' +
+                  '<option value="1080p">1080p (Full HD)</option>' +
+                  '<option value="original" selected>Original</option>' +
+                '</select>' +
+              '</div>' +
+              '<div class="form-group">' +
+                '<label for="new-room-codec">Video Codec</label>' +
+                '<select id="new-room-codec">' +
+                  '<option value="H264">H.264 (Most compatible)</option>' +
+                  '<option value="H265" selected>H.265/HEVC (Better efficiency)</option>' +
+                  '<option value="VP8">VP8</option>' +
+                  '<option value="VP9">VP9 (Better compression)</option>' +
+                '</select>' +
               '</div>' +
             '</form>' +
           '</div>' +
@@ -325,9 +345,9 @@ class DirectorDashboard {
   renderEmptyState() {
     return '<div class="empty-state">' +
       '<div class="empty-icon">&#127909;</div>' +
-      '<h3>No Rooms Assigned</h3>' +
-      '<p>You don\'t have any rooms assigned for director access yet.</p>' +
-      '<p class="empty-hint">Contact an administrator to get assigned to a room.</p>' +
+      '<h3>No Rooms Yet</h3>' +
+      '<p>You haven\'t created any rooms yet.</p>' +
+      '<p class="empty-hint">Click "+ Create Room" above to get started.</p>' +
     '</div>';
   }
 
@@ -335,39 +355,54 @@ class DirectorDashboard {
     return this.rooms.map(room => this.renderRoomCard(room)).join('');
   }
 
+  getRoomUptime(createdAt) {
+    if (!createdAt) return '-';
+    const diff = Date.now() - new Date(createdAt).getTime();
+    const minutes = Math.floor(diff / 60000);
+    if (minutes < 60) return minutes + 'm';
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return hours + 'h ' + (minutes % 60) + 'm';
+    return Math.floor(hours / 24) + 'd ' + (hours % 24) + 'h';
+  }
+
+  formatQuality(quality) {
+    if (quality === 'original') return 'Original';
+    return quality || '720p';
+  }
+
   renderRoomCard(room) {
-    const isLive = (room.participantCount || 0) > 0;
-    const statusClass = isLive ? 'status-live' : 'status-offline';
-    const statusText = isLive ? 'Live' : 'Offline';
+    const roomId = this.escapeHtml(room.roomId);
 
-    // Room action buttons - admin only
-    const actionButtons = this.isAdmin ?
-      '<div class="room-actions">' +
-        '<button class="btn btn-secondary btn-sm btn-participants" data-room-id="' + this.escapeHtml(room.roomId) + '">Participants</button>' +
-        '<button class="btn btn-secondary btn-sm btn-settings" data-room-id="' + this.escapeHtml(room.roomId) + '">Settings</button>' +
-        '<button class="btn btn-danger btn-sm btn-delete-room" data-room-id="' + this.escapeHtml(room.roomId) + '">Delete</button>' +
-      '</div>' : '';
-
-    return '<div class="room-card">' +
+    return '<div class="room-card" data-room-id="' + roomId + '" style="cursor: pointer;">' +
       '<div class="room-card-header">' +
-        '<h3 class="room-name">' + this.escapeHtml(room.name || room.roomId) + '</h3>' +
-        '<span class="room-status ' + statusClass + '">' + statusText + '</span>' +
+        '<h3 class="room-card-title">Room ' + roomId + '</h3>' +
+        '<span class="room-card-id">' + roomId + '</span>' +
       '</div>' +
-      '<div class="room-card-body">' +
-        '<div class="room-info">' +
-          '<div class="info-item">' +
-            '<span class="info-label">Room ID:</span>' +
-            '<span class="info-value">' + this.escapeHtml(room.roomId) + '</span>' +
-          '</div>' +
-          '<div class="info-item">' +
-            '<span class="info-label">Participants:</span>' +
-            '<span class="info-value">' + (room.participantCount || 0) + '</span>' +
-          '</div>' +
+      '<div class="room-card-stats">' +
+        '<div class="room-card-stat">' +
+          '<div class="room-card-stat-value">' + (room.participantCount || 0) + '</div>' +
+          '<div class="room-card-stat-label">Participants</div>' +
+        '</div>' +
+        '<div class="room-card-stat">' +
+          '<div class="room-card-stat-value">' + (room.maxParticipants || 10) + '</div>' +
+          '<div class="room-card-stat-label">Max</div>' +
+        '</div>' +
+        '<div class="room-card-stat">' +
+          '<div class="room-card-stat-value">' + this.getRoomUptime(room.createdAt) + '</div>' +
+          '<div class="room-card-stat-label">Uptime</div>' +
         '</div>' +
       '</div>' +
-      actionButtons +
-      '<div class="room-card-footer">' +
-        '<button class="btn btn-primary btn-enter" data-room-id="' + this.escapeHtml(room.roomId) + '">Enter Director View</button>' +
+      '<div class="room-card-settings">' +
+        '<span class="room-card-badge"><strong>Quality:</strong> ' + this.formatQuality(room.quality) + '</span>' +
+        '<span class="room-card-badge"><strong>Codec:</strong> ' + (room.codec || 'H264') + '</span>' +
+      '</div>' +
+      '<div class="room-card-actions">' +
+        '<button class="btn btn-secondary btn-sm btn-participants" data-room-id="' + roomId + '">View Participants</button>' +
+        '<button class="btn btn-secondary btn-sm btn-settings" data-room-id="' + roomId + '">Settings</button>' +
+      '</div>' +
+      '<div class="room-card-actions" style="margin-top: var(--space-sm);">' +
+        '<button class="btn btn-accent btn-sm btn-copy-link" data-room-id="' + roomId + '">Copy Link</button>' +
+        '<button class="btn btn-danger btn-sm btn-delete-room" data-room-id="' + roomId + '">Delete</button>' +
       '</div>' +
     '</div>';
   }
@@ -456,52 +491,63 @@ class DirectorDashboard {
       retryBtn.addEventListener('click', () => this.loadRooms());
     }
 
-    // Enter director view buttons
-    const enterButtons = document.querySelectorAll('.btn-enter');
-    enterButtons.forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const roomId = e.target.dataset.roomId;
+    // Clickable room cards - navigate to director view
+    const roomCards = document.querySelectorAll('.room-card[data-room-id]');
+    roomCards.forEach(card => {
+      card.addEventListener('click', (e) => {
+        // Don't navigate if clicking a button inside the card
+        if (e.target.closest('button')) return;
+        const roomId = card.dataset.roomId;
         if (roomId) {
           this.enterDirectorView(roomId);
         }
       });
     });
 
-    // Admin-only room management buttons
-    if (this.isAdmin) {
-      // Participants buttons
-      const participantsButtons = document.querySelectorAll('.btn-participants');
-      participantsButtons.forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          const roomId = e.target.dataset.roomId;
-          if (roomId) {
-            this.showParticipantsModal(roomId);
-          }
-        });
+    // Room management buttons (server enforces ownership/admin authorization)
+    const participantsButtons = document.querySelectorAll('.btn-participants');
+    participantsButtons.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const roomId = e.target.dataset.roomId;
+        if (roomId) {
+          this.showParticipantsModal(roomId);
+        }
       });
+    });
 
-      // Settings buttons
-      const settingsButtons = document.querySelectorAll('.btn-settings');
-      settingsButtons.forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          const roomId = e.target.dataset.roomId;
-          if (roomId) {
-            this.showSettingsModal(roomId);
-          }
-        });
+    const settingsButtons = document.querySelectorAll('.btn-settings');
+    settingsButtons.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const roomId = e.target.dataset.roomId;
+        if (roomId) {
+          this.showSettingsModal(roomId);
+        }
       });
+    });
 
-      // Delete room buttons
-      const deleteButtons = document.querySelectorAll('.btn-delete-room');
-      deleteButtons.forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          const roomId = e.target.dataset.roomId;
-          if (roomId) {
-            this.deleteRoom(roomId);
-          }
-        });
+    const copyLinkButtons = document.querySelectorAll('.btn-copy-link');
+    copyLinkButtons.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const roomId = e.target.dataset.roomId;
+        if (roomId) {
+          this.copyRoomLink(roomId);
+        }
       });
-    }
+    });
+
+    const deleteButtons = document.querySelectorAll('.btn-delete-room');
+    deleteButtons.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const roomId = e.target.dataset.roomId;
+        if (roomId) {
+          this.deleteRoom(roomId);
+        }
+      });
+    });
   }
 
   // =============================================================================
@@ -512,12 +558,6 @@ class DirectorDashboard {
    * Get CSRF token from server
    * @returns {Promise<string>}
    */
-  async getCsrfToken() {
-    const response = await fetch('/api/csrf-token', { credentials: 'include' });
-    const data = await response.json();
-    return data.csrfToken;
-  }
-
   /**
    * Create a new room
    * @param {Object} options - Room options
@@ -525,14 +565,9 @@ class DirectorDashboard {
    */
   async createRoom(options) {
     try {
-      const csrfToken = await this.getCsrfToken();
-      const response = await fetch('/api/rooms', {
+      const response = await window.authService.fetchWithAuth('/api/rooms', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken
-        },
-        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(options)
       });
 
@@ -568,13 +603,8 @@ class DirectorDashboard {
     }
 
     try {
-      const csrfToken = await this.getCsrfToken();
-      const response = await fetch('/api/rooms/' + encodeURIComponent(roomId), {
-        method: 'DELETE',
-        headers: {
-          'X-CSRF-Token': csrfToken
-        },
-        credentials: 'include'
+      const response = await window.authService.fetchWithAuth('/api/rooms/' + encodeURIComponent(roomId), {
+        method: 'DELETE'
       });
 
       const data = await response.json();
@@ -597,14 +627,9 @@ class DirectorDashboard {
    */
   async updateRoomSettings(roomId, settings) {
     try {
-      const csrfToken = await this.getCsrfToken();
-      const response = await fetch('/api/rooms/' + encodeURIComponent(roomId), {
+      const response = await window.authService.fetchWithAuth('/api/rooms/' + encodeURIComponent(roomId) + '/settings', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken
-        },
-        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)
       });
 
@@ -680,16 +705,15 @@ class DirectorDashboard {
   async handleCreateRoom(e) {
     e.preventDefault();
 
-    const name = document.getElementById('new-room-name').value.trim();
-    const description = document.getElementById('new-room-description').value.trim();
+    const password = document.getElementById('new-room-password').value.trim();
+    const maxParticipants = parseInt(document.getElementById('new-room-max').value, 10) || 10;
+    const quality = document.getElementById('new-room-quality').value;
+    const codec = document.getElementById('new-room-codec').value;
 
-    // Validation
-    if (!name) {
-      this.showToast('Room name is required', 'error');
-      return;
-    }
+    const options = { maxParticipants, quality, codec };
+    if (password) options.password = password;
 
-    const result = await this.createRoom({ name, description });
+    const result = await this.createRoom(options);
     if (result.success) {
       this.hideCreateRoomModal();
     }
@@ -809,6 +833,15 @@ class DirectorDashboard {
   // =============================================================================
   // Utilities
   // =============================================================================
+
+  copyRoomLink(roomId) {
+    const roomUrl = window.location.origin + '/room/' + roomId;
+    navigator.clipboard.writeText(roomUrl).then(() => {
+      this.showToast('Room link copied!', 'success');
+    }).catch(() => {
+      this.showToast('Failed to copy link', 'error');
+    });
+  }
 
   showToast(message, type = 'info') {
     // Check if toast container exists, create if not

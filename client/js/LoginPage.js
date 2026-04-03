@@ -216,7 +216,7 @@ class LoginPage {
 
     const roleRedirects = {
       'admin': '/admin',
-      'director': '/director-dashboard',
+      'director': '/director',
       'operator': '/monitoring'
     };
 
